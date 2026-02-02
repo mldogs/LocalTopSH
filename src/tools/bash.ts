@@ -5,7 +5,10 @@
  * Background: Commands ending with & run in background
  */
 
-import { execSync, spawn } from 'child_process';
+import { exec, spawn } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import { checkCommand, storePendingCommand } from '../approvals/index.js';
 
 // Patterns to sanitize from output
@@ -193,16 +196,16 @@ export async function execute(
     };
   }
   
-  return executeCommand(args.command, workDir);
+  return await executeCommand(args.command, workDir);
 }
 
 /**
  * Execute a command (used for both regular and approved commands)
  */
-export function executeCommand(
+export async function executeCommand(
   command: string,
   cwd: string
-): { success: boolean; output?: string; error?: string } {
+): Promise<{ success: boolean; output?: string; error?: string }> {
   // Check if command should run in background
   const isBackground = /&\s*$/.test(command.trim()) || command.includes('nohup');
   
@@ -232,14 +235,16 @@ export function executeCommand(
     }
   }
   
-  // Execute regular commands with execSync (blocking)
+  // Execute regular commands with async exec (non-blocking!)
   try {
-    const output = execSync(command, {
+    const { stdout, stderr } = await execAsync(command, {
       cwd,
       encoding: 'utf-8',
       timeout: 120000, // 2 min (matches global tool timeout)
       maxBuffer: 1024 * 1024 * 10,
     });
+    
+    const output = stdout || stderr || '';
     
     // Sanitize secrets from output
     const sanitized = sanitizeOutput(output);

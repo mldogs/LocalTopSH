@@ -718,7 +718,7 @@ export function createBot(config: BotConfig) {
       
       // Actually execute the command
       console.log(`[callback] Running: ${pending.command} in ${pending.cwd}`);
-      const result = executeCommand(pending.command, pending.cwd);
+      const result = await executeCommand(pending.command, pending.cwd);
       
       // Show result
       const output = result.success 
