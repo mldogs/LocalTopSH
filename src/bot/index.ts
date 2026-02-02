@@ -831,7 +831,8 @@ export function createBot(config: BotConfig) {
     // Save chat ID for approval requests
     sessionChats.set(sessionId, chatId);
     
-    console.log(`[bot] ${userId}: ${text.slice(0, 50)}...`);
+    const username = ctx.from?.username || ctx.from?.first_name || String(userId);
+    console.log(`\n[IN] @${username} (${userId}): ${text.slice(0, 100)}`);
     
     // Log to global activity log
     logGlobal(userId, 'message', text.slice(0, 80));
@@ -839,7 +840,6 @@ export function createBot(config: BotConfig) {
     // Save to chat history (only for private chats, groups are saved in reaction handler)
     const chatType = ctx.chat?.type;
     if (chatType === 'private') {
-      const username = ctx.from?.username || ctx.from?.first_name || String(userId);
       saveChatMessage(username, text);
     }
     
@@ -880,7 +880,6 @@ export function createBot(config: BotConfig) {
         // Run agent with tool status updates
         // Pass chatType to restrict dangerous commands in groups
         const response = await agent.run(sessionId, text, async (toolName) => {
-          console.log(`[tool] ${toolName}`);
           logGlobal(userId, 'tool', toolName);
           
           const tracker = toolTrackers.get(userId)!;
@@ -927,6 +926,7 @@ export function createBot(config: BotConfig) {
         
         // Send final response with rate limiting
         const finalResponse = response || '(no response)';
+        console.log(`[OUT] → @${username}: ${finalResponse.slice(0, 100)}${finalResponse.length > 100 ? '...' : ''}\n`);
         const html = mdToHtml(finalResponse);
         const parts = splitMessage(html);
         

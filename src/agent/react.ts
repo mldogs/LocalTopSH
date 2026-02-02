@@ -193,24 +193,10 @@ ${chatHistory}
         // Build full message list
         const messages = this.buildMessages(session, userMessage, workingMessages);
         
-        // Log request
-        console.log('\n' + '='.repeat(80));
-        console.log(`[TURN ${iteration}] REQUEST → ${this.config.model}`);
-        console.log('='.repeat(80));
-        console.log('\nMESSAGES:');
-        for (const m of messages) {
-          console.log(`\n[${m.role.toUpperCase()}]`);
-          if (typeof m.content === 'string') {
-            console.log(m.content);
-          }
-          if ((m as any).tool_calls) {
-            console.log('tool_calls:', JSON.stringify((m as any).tool_calls, null, 2));
-          }
-          if ((m as any).tool_call_id) {
-            console.log(`tool_call_id: ${(m as any).tool_call_id}`);
-          }
+        // Minimal logging
+        if (iteration === 1) {
+          console.log(`[agent] Turn ${iteration}...`);
         }
-        console.log('\nTOOLS:', tools.toolNames.join(', '));
         
         // Think: LLM decides what to do
         const response = await this.openai.chat.completions.create({
@@ -220,19 +206,7 @@ ${chatHistory}
           tool_choice: 'auto',
         });
         
-        // Log RAW response
-        console.log('\n' + '-'.repeat(60));
-        console.log(`[TURN ${iteration}] RAW RESPONSE`);
-        console.log('-'.repeat(60));
-        console.log(JSON.stringify(response, null, 2));
-        
         const rawMessage = response.choices[0].message;
-        
-        // Log reasoning if present (vLLM reasoning models)
-        const reasoning = (rawMessage as any).reasoning || (rawMessage as any).reasoning_content;
-        if (reasoning) {
-          console.log(`\n[REASONING] ${reasoning}`);
-        }
         
         // Clean message - remove non-standard fields (reasoning, etc.)
         // Only keep standard OpenAI fields to avoid API errors
@@ -245,7 +219,6 @@ ${chatHistory}
         // No tool calls = task complete
         if (!rawMessage.tool_calls?.length) {
           if (!rawMessage.content) {
-            console.log('\n[WARN] Empty response, nudging model to continue...');
             workingMessages.push(message);
             workingMessages.push({
               role: 'user',
@@ -255,7 +228,6 @@ ${chatHistory}
           }
           
           finalResponse = rawMessage.content;
-          console.log('\n[DONE] Final response');
           break;
         }
         
@@ -267,8 +239,6 @@ ${chatHistory}
         for (const call of message.tool_calls) {
           const name = call.function.name;
           const args = JSON.parse(call.function.arguments || '{}');
-          
-          console.log(`\n[TOOL] ${name}(${JSON.stringify(args)})`);
           
           onToolCall?.(name);
           
@@ -293,8 +263,6 @@ ${chatHistory}
             output += '\n\n⛔ THIS COMMAND IS PERMANENTLY BLOCKED. Do NOT retry it. Find an alternative approach or inform the user this action is not allowed.';
             console.log(`[SECURITY] BLOCKED count: ${blockedCount}/${MAX_BLOCKED}`);
           }
-          
-          console.log(`[RESULT] ${output.slice(0, 500)}${output.length > 500 ? '...' : ''}`);
           
           workingMessages.push({
             role: 'tool',
