@@ -51,6 +51,7 @@ export function createGateway(config: GatewayConfig) {
           
           const result = await tools.execute(tool, args || {}, {
             cwd: config.cwd,
+            sessionId: 'gateway',
             zaiApiKey: config.zaiApiKey,
             tavilyApiKey: config.tavilyApiKey,
           });

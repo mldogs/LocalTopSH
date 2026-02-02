@@ -245,23 +245,22 @@ export function createBot(config: BotConfig) {
       }
       
       // Send response as reply to user
-      if (response) {
-        const html = mdToHtml(response);
-        const parts = splitMessage(html);
-        
-        for (let i = 0; i < parts.length; i++) {
-          try {
-            await ctx.reply(parts[i], { 
-              parse_mode: 'HTML',
-              reply_parameters: i === 0 ? { message_id: messageId } : undefined
-            });
-          } catch {
-            // Fallback to plain text
-            await ctx.reply(response.slice(0, 4000), {
-              reply_parameters: i === 0 ? { message_id: messageId } : undefined
-            });
-            break;
-          }
+      const finalResponse = response || '(no response from model)';
+      const html = mdToHtml(finalResponse);
+      const parts = splitMessage(html);
+      
+      for (let i = 0; i < parts.length; i++) {
+        try {
+          await ctx.reply(parts[i], { 
+            parse_mode: 'HTML',
+            reply_parameters: i === 0 ? { message_id: messageId } : undefined
+          });
+        } catch {
+          // Fallback to plain text
+          await ctx.reply(finalResponse.slice(0, 4000), {
+            reply_parameters: i === 0 ? { message_id: messageId } : undefined
+          });
+          break;
         }
       }
     } catch (e: any) {

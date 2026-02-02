@@ -206,10 +206,19 @@ ${toSummarize.map(m =>
         
         session.messages.push(message);
         
-        // No tool calls = task complete
+        // No tool calls = task complete or model stalled
         if (!message.tool_calls?.length) {
+          // If empty response, nudge the model to continue
+          if (!message.content) {
+            console.log('\n[WARN] Empty response, nudging model to continue...');
+            session.messages.push({
+              role: 'user',
+              content: 'Continue. Finish the task or explain what you did.',
+            });
+            continue;
+          }
           console.log('\n[DONE] Final response');
-          return message.content || '';
+          return message.content;
         }
         
         // Act: Execute tools
@@ -224,6 +233,7 @@ ${toSummarize.map(m =>
           // Observe: Get tool result
           const result = await tools.execute(name, args, {
             cwd: this.config.cwd,
+            sessionId,
             zaiApiKey: this.config.zaiApiKey,
             tavilyApiKey: this.config.tavilyApiKey,
           });

@@ -7,16 +7,19 @@
  * - read_file        : Read file contents
  * - write_file       : Write/create files
  * - edit_file        : Edit files (find & replace)
+ * - delete_file      : Delete files
  * - search_files     : Find files by glob pattern
  * - search_text      : Search text in files (grep)
  * - list_directory   : List directory contents
  * - search_web       : Search the internet (Z.AI + Tavily)
  * - fetch_page       : Fetch URL content
+ * - manage_tasks     : Task management (todo list)
  */
 
 import * as bash from './bash.js';
 import * as files from './files.js';
 import * as web from './web.js';
+import * as tasks from './tasks.js';
 
 // Tool definitions for OpenAI
 export const definitions = [
@@ -24,11 +27,13 @@ export const definitions = [
   files.readDefinition,
   files.writeDefinition,
   files.editDefinition,
+  files.deleteDefinition,
   files.searchFilesDefinition,
   files.searchTextDefinition,
   files.listDirectoryDefinition,
   web.searchWebDefinition,
   web.fetchPageDefinition,
+  tasks.manageTasksDefinition,
 ];
 
 // Tool names
@@ -44,6 +49,7 @@ export interface ToolResult {
 // Context
 export interface ToolContext {
   cwd: string;
+  sessionId?: string;
   zaiApiKey?: string;
   tavilyApiKey?: string;
 }
@@ -69,6 +75,9 @@ export async function execute(
     case 'edit_file':
       return files.executeEdit(args as any, ctx.cwd);
     
+    case 'delete_file':
+      return files.executeDelete(args as any, ctx.cwd);
+    
     case 'search_files':
       return files.executeSearchFiles(args as any, ctx.cwd);
     
@@ -83,6 +92,9 @@ export async function execute(
     
     case 'fetch_page':
       return web.executeFetchPage(args as any);
+    
+    case 'manage_tasks':
+      return tasks.executeManageTasks(args as any, ctx.sessionId || 'default');
     
     default:
       return { success: false, error: `Unknown tool: ${name}` };

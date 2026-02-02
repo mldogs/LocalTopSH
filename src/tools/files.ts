@@ -1,10 +1,10 @@
 /**
  * File tools - Pattern: Action + Object
- * read_file, write_file, edit_file, search_files, search_text, list_directory
+ * read_file, write_file, edit_file, delete_file, search_files, search_text, list_directory
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import fg from 'fast-glob';
 import { execSync } from 'child_process';
 
@@ -135,6 +135,47 @@ export async function executeEdit(
   }
 }
 
+// ============ delete_file ============
+export const deleteDefinition = {
+  type: "function" as const,
+  function: {
+    name: "delete_file",
+    description: "Delete a file. Only works within workspace directory.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to the file to delete" },
+      },
+      required: ["path"],
+    },
+  },
+};
+
+export async function executeDelete(
+  args: { path: string },
+  cwd: string
+): Promise<{ success: boolean; output?: string; error?: string }> {
+  const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
+  const resolved = resolve(fullPath);
+  const cwdResolved = resolve(cwd);
+  
+  // Security: only allow deletion within workspace
+  if (!resolved.startsWith(cwdResolved)) {
+    return { success: false, error: `Security: cannot delete files outside workspace` };
+  }
+  
+  if (!existsSync(fullPath)) {
+    return { success: false, error: `File not found: ${fullPath}` };
+  }
+  
+  try {
+    unlinkSync(fullPath);
+    return { success: true, output: `Deleted: ${args.path}` };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
 // ============ search_files ============
 export const searchFilesDefinition = {
   type: "function" as const,
@@ -173,12 +214,16 @@ export const searchTextDefinition = {
   type: "function" as const,
   function: {
     name: "search_text",
-    description: "Search for text/code in files. Find function definitions, usages, etc.",
+    description: "Search for text/code in files using grep/ripgrep. Find definitions, usages, patterns.",
     parameters: {
       type: "object",
       properties: {
         pattern: { type: "string", description: "Text or regex pattern to search" },
         path: { type: "string", description: "Directory or file to search in (default: current)" },
+        context_before: { type: "number", description: "Lines to show before match (like grep -B)" },
+        context_after: { type: "number", description: "Lines to show after match (like grep -A)" },
+        files_only: { type: "boolean", description: "Return only file paths, not content" },
+        ignore_case: { type: "boolean", description: "Case insensitive search" },
       },
       required: ["pattern"],
     },
@@ -186,7 +231,14 @@ export const searchTextDefinition = {
 };
 
 export async function executeSearchText(
-  args: { pattern: string; path?: string },
+  args: { 
+    pattern: string; 
+    path?: string; 
+    context_before?: number;
+    context_after?: number;
+    files_only?: boolean;
+    ignore_case?: boolean;
+  },
   cwd: string
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const searchPath = args.path 
@@ -194,7 +246,18 @@ export async function executeSearchText(
     : cwd;
   
   try {
-    const cmd = `grep -rn --include="*" "${args.pattern.replace(/"/g, '\\"')}" "${searchPath}" 2>/dev/null | head -100`;
+    const flags: string[] = ['-rn'];
+    
+    if (args.ignore_case) flags.push('-i');
+    if (args.files_only) flags.push('-l');
+    if (args.context_before) flags.push(`-B${args.context_before}`);
+    if (args.context_after) flags.push(`-A${args.context_after}`);
+    
+    // Exclude common junk
+    flags.push('--exclude-dir=node_modules', '--exclude-dir=.git', '--exclude-dir=dist');
+    
+    const escapedPattern = args.pattern.replace(/"/g, '\\"');
+    const cmd = `grep ${flags.join(' ')} "${escapedPattern}" "${searchPath}" 2>/dev/null | head -200`;
     const output = execSync(cmd, { encoding: 'utf-8', cwd, timeout: 30000 });
     return { success: true, output: output || "(no matches)" };
   } catch {
