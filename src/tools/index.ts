@@ -67,55 +67,88 @@ export interface ToolContext {
   tavilyApiKey?: string;
 }
 
+// Format args for logging (truncate long values)
+function formatArgs(args: Record<string, any>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(args)) {
+    let v = typeof value === 'string' ? value : JSON.stringify(value);
+    if (v.length > 60) v = v.slice(0, 60) + '...';
+    parts.push(`${key}=${v}`);
+  }
+  return parts.join(', ');
+}
+
 // Execute tool by name
 export async function execute(
   name: string, 
   args: Record<string, any>,
   ctx: ToolContext
 ): Promise<ToolResult> {
-  console.log(`[tool] ${name}`, Object.keys(args));
+  const argsStr = formatArgs(args);
+  console.log(`[tool] ${name}(${argsStr})`);
+  
+  let result: ToolResult;
   
   switch (name) {
     case 'run_command':
-      return bash.execute(args as any, { cwd: ctx.cwd, sessionId: ctx.sessionId, chatId: ctx.chatId, chatType: ctx.chatType });
+      result = await bash.execute(args as any, { cwd: ctx.cwd, sessionId: ctx.sessionId, chatId: ctx.chatId, chatType: ctx.chatType });
+      break;
     
     case 'read_file':
-      return files.executeRead(args as any, ctx.cwd);
+      result = await files.executeRead(args as any, ctx.cwd);
+      break;
     
     case 'write_file':
-      return files.executeWrite(args as any, ctx.cwd);
+      result = await files.executeWrite(args as any, ctx.cwd);
+      break;
     
     case 'edit_file':
-      return files.executeEdit(args as any, ctx.cwd);
+      result = await files.executeEdit(args as any, ctx.cwd);
+      break;
     
     case 'delete_file':
-      return files.executeDelete(args as any, ctx.cwd);
+      result = await files.executeDelete(args as any, ctx.cwd);
+      break;
     
     case 'search_files':
-      return files.executeSearchFiles(args as any, ctx.cwd);
+      result = await files.executeSearchFiles(args as any, ctx.cwd);
+      break;
     
     case 'search_text':
-      return files.executeSearchText(args as any, ctx.cwd);
+      result = await files.executeSearchText(args as any, ctx.cwd);
+      break;
     
     case 'list_directory':
-      return files.executeListDirectory(args as any, ctx.cwd);
+      result = await files.executeListDirectory(args as any, ctx.cwd);
+      break;
     
     case 'search_web':
-      return web.executeSearchWeb(args as any, ctx.zaiApiKey, ctx.tavilyApiKey);
+      result = await web.executeSearchWeb(args as any, ctx.zaiApiKey, ctx.tavilyApiKey);
+      break;
     
     case 'fetch_page':
-      return web.executeFetchPage(args as any);
+      result = await web.executeFetchPage(args as any);
+      break;
     
     case 'manage_tasks':
-      return tasks.executeManageTasks(args as any, ctx.sessionId || 'default');
+      result = await tasks.executeManageTasks(args as any, ctx.sessionId || 'default');
+      break;
     
     case 'ask_user':
-      return ask.execute(args as any, ctx.sessionId || 'default');
+      result = await ask.execute(args as any, ctx.sessionId || 'default');
+      break;
     
     case 'memory':
-      return memory.execute(args as any, ctx.cwd);
+      result = await memory.execute(args as any, ctx.cwd);
+      break;
     
     default:
-      return { success: false, error: `Unknown tool: ${name}` };
+      result = { success: false, error: `Unknown tool: ${name}` };
   }
+  
+  // Log result
+  const output = result.success ? (result.output?.slice(0, 80) || 'ok') : `ERROR: ${result.error?.slice(0, 60)}`;
+  console.log(`[tool] → ${output}${(result.output?.length || 0) > 80 ? '...' : ''}`);
+  
+  return result;
 }
