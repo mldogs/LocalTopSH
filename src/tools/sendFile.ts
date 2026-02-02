@@ -131,6 +131,13 @@ export async function execute(
       output: `Sent file: ${basename(resolved)} (${formatSize(stat.size)})`,
     };
   } catch (e: any) {
+    // Check if it's a permission error (group restrictions)
+    if (e.message?.includes('not enough rights') || e.message?.includes('CHAT_SEND_MEDIA_FORBIDDEN')) {
+      return {
+        success: false,
+        error: `Cannot send files in this group (no permissions). Try: read the file and paste contents, or tell user to DM for files.`,
+      };
+    }
     return {
       success: false,
       error: `Failed to send file: ${e.message}`,
