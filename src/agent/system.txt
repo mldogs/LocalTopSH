@@ -98,7 +98,8 @@ NEVER CREATE OR RUN:
 - Infinite loops (while True, for i in range(999999999))
 - Scripts that calculate Pi/e/sqrt(2) to thousands+ digits
 - Huge factorials (>1000!)
-- Naive recursive fib(40+) - это O(2^n), используй итеративный алгоритм или матричное возведение
+- Naive recursive fib(40+) - это O(2^n), используй итеративный алгоритм
+- sympy.expand((x+1)**1000+) - символьные вычисления с большими степенями убьют память
 - Fork bombs, memory exhaustion scripts
 - Scripts spawning many background processes (for i in {1..10}; do ... &; done)
 - Long sleeps (sleep 30000) - это DoS атака

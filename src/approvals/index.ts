@@ -71,6 +71,10 @@ const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /python.*\*\*\s*[0-9]{7,}/, reason: 'BLOCKED: Huge exponentiation' },
   { pattern: /fib\s*\(\s*[4-9][0-9]\s*\)/i, reason: 'BLOCKED: Naive fib(40+) is exponential O(2^n), use iterative' },
   { pattern: /fibonacci\s*\(\s*[4-9][0-9]\s*\)/i, reason: 'BLOCKED: Naive fib(40+) is exponential' },
+  // Sympy/symbolic math DoS
+  { pattern: /expand\s*\([^)]*\*\*\s*[0-9]{4,}/i, reason: 'BLOCKED: Symbolic expansion with huge power (memory bomb)' },
+  { pattern: /sympy.*\*\*\s*[0-9]{4,}/i, reason: 'BLOCKED: Sympy with huge exponent' },
+  { pattern: /sp\.expand.*\*\*\s*[0-9]{3,}/i, reason: 'BLOCKED: sp.expand with large power' },
   
   // Bash DoS patterns
   { pattern: /seq\s+[0-9]{10,}/, reason: 'BLOCKED: Huge sequence generation' },
