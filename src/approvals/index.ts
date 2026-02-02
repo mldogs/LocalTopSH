@@ -87,6 +87,22 @@ const DANGEROUS_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /\bfind\s+\/\s/, reason: 'Full filesystem scan (very slow)' },
   { pattern: /\bdu\s+-[ash]*\s+\/\s*$/, reason: 'Full disk usage scan' },
   { pattern: /\bls\s+-[laR]*\s+\/\s*$/, reason: 'Full filesystem listing' },
+  
+  // Additional dangerous patterns (from suicide-linux)
+  { pattern: /\bcat\s+\/dev\/port/, reason: 'Read port device (system freeze)' },
+  { pattern: /\bmv\s+.*\s+\/dev\/null/, reason: 'Move files to black hole' },
+  { pattern: />\s*\/dev\/sda/, reason: 'Overwrite disk' },
+  { pattern: /\bperl\s+-e\s+.*fork/, reason: 'Fork bomb (perl)' },
+  
+  // Kubernetes dangerous (from Cline issues)
+  { pattern: /\bkubectl\s+delete\s+.*--all/, reason: 'Delete all K8s resources' },
+  { pattern: /\bkubectl\s+apply\s+.*-f\s+-/, reason: 'Apply K8s from stdin' },
+  { pattern: /\bdocker\s+rm\s+.*-f/, reason: 'Force remove containers' },
+  { pattern: /\bdocker\s+system\s+prune\s+-a/, reason: 'Remove all Docker data' },
+  
+  // Network attacks
+  { pattern: /\bnc\s+.*-e\s+\/bin\/(ba)?sh/, reason: 'Reverse shell' },
+  { pattern: /\bbash\s+-i\s+.*\/dev\/tcp/, reason: 'Reverse shell' },
 ];
 
 // In-memory storage for pending commands
