@@ -53,6 +53,14 @@ if (mode === 'gateway') {
   console.log(`Allowed: ${allowedUsers.length ? allowedUsers.join(', ') : 'all'}`);
   
   const bot = createBot(config);
+  
+  // Register commands in Telegram menu
+  bot.telegram.setMyCommands([
+    { command: 'start', description: 'Start / Help' },
+    { command: 'clear', description: 'Clear session history' },
+    { command: 'status', description: 'Show status' },
+  ]);
+  
   bot.launch();
   
   process.once('SIGINT', () => bot.stop('SIGINT'));

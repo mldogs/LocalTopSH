@@ -147,8 +147,12 @@ ${toSummarize.map(m =>
       });
     }
     
-    // Add user message
-    session.messages.push({ role: 'user', content: userMessage });
+    // Add user message with current date
+    const dateStr = new Date().toISOString().slice(0, 10);
+    session.messages.push({ 
+      role: 'user', 
+      content: `[${dateStr}] ${userMessage}` 
+    });
     
     let iteration = 0;
     
@@ -157,6 +161,25 @@ ${toSummarize.map(m =>
       iteration++;
       
       try {
+        // Log request (full, no truncation)
+        console.log('\n' + '='.repeat(80));
+        console.log(`[TURN ${iteration}] REQUEST → ${this.config.model}`);
+        console.log('='.repeat(80));
+        console.log('\nMESSAGES:');
+        for (const m of session.messages) {
+          console.log(`\n[${m.role.toUpperCase()}]`);
+          if (typeof m.content === 'string') {
+            console.log(m.content);
+          }
+          if ((m as any).tool_calls) {
+            console.log('tool_calls:', JSON.stringify((m as any).tool_calls, null, 2));
+          }
+          if ((m as any).tool_call_id) {
+            console.log(`tool_call_id: ${(m as any).tool_call_id}`);
+          }
+        }
+        console.log('\nTOOLS:', tools.toolNames.join(', '));
+        
         // Think: LLM decides what to do
         const response = await this.openai.chat.completions.create({
           model: this.config.model,
@@ -166,10 +189,26 @@ ${toSummarize.map(m =>
         });
         
         const message = response.choices[0].message;
+        
+        // Log response
+        console.log('\n' + '-'.repeat(60));
+        console.log(`[TURN ${iteration}] RESPONSE`);
+        console.log('-'.repeat(60));
+        console.log(JSON.stringify({
+          content: message.content,
+          tool_calls: message.tool_calls?.map(tc => ({
+            id: tc.id,
+            function: tc.function.name,
+            arguments: tc.function.arguments,
+          })),
+          usage: response.usage,
+        }, null, 2));
+        
         session.messages.push(message);
         
         // No tool calls = task complete
         if (!message.tool_calls?.length) {
+          console.log('\n[DONE] Final response');
           return message.content || '';
         }
         
@@ -177,6 +216,8 @@ ${toSummarize.map(m =>
         for (const call of message.tool_calls) {
           const name = call.function.name;
           const args = JSON.parse(call.function.arguments || '{}');
+          
+          console.log(`\n[TOOL] ${name}(${JSON.stringify(args)})`);
           
           onToolCall?.(name);
           
@@ -187,12 +228,16 @@ ${toSummarize.map(m =>
             tavilyApiKey: this.config.tavilyApiKey,
           });
           
+          const output = result.success 
+            ? (result.output || 'Success') 
+            : `Error: ${result.error}`;
+          
+          console.log(`[RESULT] ${output.slice(0, 500)}${output.length > 500 ? '...' : ''}`);
+          
           session.messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: result.success 
-              ? (result.output || 'Success') 
-              : `Error: ${result.error}`,
+            content: output,
           });
         }
         
