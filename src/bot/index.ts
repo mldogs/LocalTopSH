@@ -454,14 +454,17 @@ async function getSmartReaction(text: string, username: string): Promise<string>
           content: `Ты выбираешь эмодзи-реакцию на сообщение в чате. Отвечай ТОЛЬКО одним эмодзи из списка.
 Доступные: ${ALL_REACTIONS.join(' ')}
 
-Правила:
-- Смешное/ироничное → 😂🤣🤡😈
-- Крутое/полезное → 🔥💯🏆👏❤️
-- Глупое/бред → 💩🤡🗿😴
-- Вопрос/непонятно → 🤔🤨👀
-- Грустное/жалоба → 💔😢
-- Страшное/шок → 🤯💀🎃
-- Милое → 😍🤗❤️
+ПРАВИЛА:
+- Смешное/ироничное → 😂🤣😈
+- Крутое/полезное/интересное → 🔥💯🏆👏❤️👍
+- Вопрос/размышление → 🤔👀
+- Милое/доброе → 😍🤗❤️
+- Грустное → 💔
+
+ВАЖНО: 
+- НЕ ставь негативные реакции (💩🤡🗿😴🤮) на нейтральные сообщения!
+- 🤡💩 только если человек ЯВНО написал глупость или бред
+- При сомнении используй нейтральные: 👀🤔👍
 
 Отвечай ОДНИМ эмодзи!`
         },
@@ -499,12 +502,25 @@ let lastReactionTime = 0;
 const MIN_REACTION_INTERVAL = 5000; // 5 seconds between reactions
 
 // Should we react to this message?
-function shouldReact(): boolean {
+function shouldReact(text: string): boolean {
   const now = Date.now();
   // Rate limit: at least 5 seconds between reactions
   if (now - lastReactionTime < MIN_REACTION_INTERVAL) {
     return false;
   }
+  
+  // Skip messages that are mostly links
+  const linkPattern = /https?:\/\/\S+/g;
+  const textWithoutLinks = text.replace(linkPattern, '').trim();
+  if (textWithoutLinks.length < 10) {
+    return false; // Message is mostly a link
+  }
+  
+  // Skip very short messages
+  if (text.length < 5) {
+    return false;
+  }
+  
   // React to ~15% of messages
   if (Math.random() < 0.15) {
     lastReactionTime = now;
@@ -873,7 +889,7 @@ export function createBot(config: BotConfig) {
       saveChatMessage(username, msg.text);
       
       // Check if should react
-      if (shouldReact()) {
+      if (shouldReact(msg.text)) {
         const username = msg.from?.username || msg.from?.first_name || 'anon';
         const reaction = await getSmartReaction(msg.text, username);
         
