@@ -111,12 +111,42 @@ async function withUserLock<T>(userId: number, fn: () => Promise<T>): Promise<T>
   }
 }
 
+// Global concurrent users limiter
+const activeUsers = new Set<number>();
+let maxConcurrentUsers = 10;
+
+function setMaxConcurrentUsers(max: number) {
+  maxConcurrentUsers = max;
+}
+
+function canAcceptUser(userId: number): boolean {
+  // Already active - allow (they're in queue)
+  if (activeUsers.has(userId)) {
+    return true;
+  }
+  // Check if we have room
+  return activeUsers.size < maxConcurrentUsers;
+}
+
+function markUserActive(userId: number) {
+  activeUsers.add(userId);
+  console.log(`[users] Active: ${activeUsers.size}/${maxConcurrentUsers}`);
+}
+
+function markUserInactive(userId: number) {
+  activeUsers.delete(userId);
+  console.log(`[users] Active: ${activeUsers.size}/${maxConcurrentUsers}`);
+}
+
+export { setMaxConcurrentUsers };
+
 export interface BotConfig {
   telegramToken: string;
   baseUrl: string;
   apiKey: string;
   model: string;
   cwd: string;  // Base workspace dir
+  maxConcurrentUsers?: number;  // Max users processing at once
   zaiApiKey?: string;
   tavilyApiKey?: string;
   exposedPorts?: number[];
@@ -232,6 +262,11 @@ export function createBot(config: BotConfig) {
   const bot = new Telegraf(config.telegramToken);
   let botUsername = '';
   let botId = 0;
+  
+  // Set max concurrent users from config
+  if (config.maxConcurrentUsers) {
+    setMaxConcurrentUsers(config.maxConcurrentUsers);
+  }
   
   // Session to chatId mapping
   const sessionChats = new Map<string, number>();
@@ -577,6 +612,18 @@ export function createBot(config: BotConfig) {
     const messageId = ctx.message.message_id;
     const chatId = ctx.chat.id;
     
+    // Check concurrent users limit
+    if (!canAcceptUser(userId)) {
+      console.log(`[bot] User ${userId} rejected - server busy (${activeUsers.size}/${maxConcurrentUsers})`);
+      try {
+        await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '⏳' }]);
+      } catch {}
+      await safeSend(chatId, () => 
+        ctx.reply('⏳ Сервер занят, попробуй через минуту', { reply_parameters: { message_id: messageId } })
+      );
+      return;
+    }
+    
     // Save chat ID for approval requests
     sessionChats.set(sessionId, chatId);
     
@@ -586,6 +633,9 @@ export function createBot(config: BotConfig) {
     try {
       await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '👀' }]);
     } catch {}
+    
+    // Mark user as active
+    markUserActive(userId);
     
     // Use lock to prevent concurrent requests from same user
     await withUserLock(userId, async () => {
@@ -641,6 +691,9 @@ export function createBot(config: BotConfig) {
         await safeSend(chatId, () => 
           ctx.reply(`❌ ${e.message?.slice(0, 200)}`, { reply_parameters: { message_id: messageId } })
         );
+      } finally {
+        // Mark user as inactive when done
+        markUserInactive(userId);
       }
     });
   });

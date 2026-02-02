@@ -33,6 +33,7 @@ const config = {
   cwd: process.env.AGENT_CWD || process.cwd(),
   gatewayPort: parseInt(process.env.GATEWAY_PORT || '3100'),
   exposedPorts,
+  maxConcurrentUsers: parseInt(process.env.MAX_CONCURRENT_USERS || '10'),
 };
 
 const mode = process.argv[2] || 'bot';
@@ -51,6 +52,7 @@ if (mode === 'gateway') {
   console.log(`Model: ${config.model}`);
   console.log(`Search: ${config.zaiApiKey ? 'Z.AI' : config.tavilyApiKey ? 'Tavily' : 'none'}`);
   console.log(`Ports: ${exposedPorts.length ? exposedPorts.join(', ') : 'none'}`);
+  console.log(`Max concurrent users: ${config.maxConcurrentUsers}`);
   console.log('Access: Open to all users (per-user workspaces)');
   
   const bot = createBot(config);
