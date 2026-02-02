@@ -12,7 +12,7 @@ const MEMORY_FILE = 'MEMORY.md';
 const SHARED_DIR = '/workspace/_shared';
 const GLOBAL_LOG_FILE = `${SHARED_DIR}/GLOBAL_LOG.md`;
 const CHAT_HISTORY_FILE = `${SHARED_DIR}/CHAT_HISTORY.md`;
-const MAX_CHAT_MESSAGES = 100; // Keep last N messages
+const MAX_CHAT_MESSAGES = 300; // Keep last N messages
 
 // Ensure shared directory exists
 function ensureSharedDir() {

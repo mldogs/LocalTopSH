@@ -982,6 +982,10 @@ export function createBot(config: BotConfig) {
       let statusMsgId: number | undefined;
       
       try {
+        // Small random delay to feel more human (0.5-2 sec)
+        const thinkDelay = 500 + Math.random() * 1500;
+        await new Promise(resolve => setTimeout(resolve, thinkDelay));
+        
         // Run agent with tool status updates
         // Pass chatType to restrict dangerous commands in groups
         const response = await agent.run(sessionId, messageForAgent, async (toolName) => {
