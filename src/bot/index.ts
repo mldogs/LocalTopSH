@@ -4,7 +4,7 @@
  */
 
 import { Telegraf, Context } from 'telegraf';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import OpenAI from 'openai';
 import { ReActAgent } from '../agent/react.js';
@@ -58,10 +58,17 @@ import {
   pendingQuestions 
 } from './handlers.js';
 import { CONFIG, getRandomDoneEmoji } from '../config.js';
-import { 
-  setupAllCommands, 
-  isAfk 
+import {
+  setupAllCommands,
+  isAfk
 } from './commands.js';
+import {
+  setupAdminCommands,
+  isAllowed,
+  isAdmin,
+  updateUserActivity
+} from '../admin/index.js';
+import { db } from '../db/index.js';
 
 // Re-export types and setMaxConcurrentUsers
 export type { BotConfig } from './types.js';
@@ -366,12 +373,28 @@ export function createBot(config: BotConfig) {
   
   // Setup commands (/start, /clear, /status, /pending, /afk)
   setupAllCommands(bot, config, botUsername, getAgent);
+
+  // Setup admin commands (/admin, /admin_add, /admin_remove, etc.)
+  setupAdminCommands(bot);
   
   // Text messages - main handler
   bot.on('text', async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId) return;
-    
+
+    // Check whitelist - only allowed users can interact
+    if (!isAllowed(userId)) {
+      console.log(`[bot] Unauthorized user ${userId} blocked`);
+      // In private chat, inform user. In groups, silently ignore.
+      if (ctx.chat?.type === 'private') {
+        await ctx.reply('🔒 Доступ ограничен. Обратитесь к администратору October Group.');
+      }
+      return;
+    }
+
+    // Update user activity stats (in DB)
+    updateUserActivity(userId);
+
     // Check if bot is AFK
     if (isAfk()) {
       // Still AFK - only react sometimes, don't respond
@@ -417,6 +440,14 @@ export function createBot(config: BotConfig) {
     
     // Log to global activity log
     logGlobal(userId, 'message', text.slice(0, CONFIG.messages.logSliceLength));
+
+    // Log to database
+    try {
+      db.activity.logActivity(userId, 'message', { length: text.length, chatId });
+      db.activity.incrementUsage(userId, 'messages_sent');
+    } catch (e) {
+      // Don't fail on logging errors
+    }
     
     // Save to chat history (only for private chats, groups are saved in reaction handler)
     const chatType = ctx.chat?.type;
@@ -579,6 +610,174 @@ export function createBot(config: BotConfig) {
     });
   });
   
+  // Handle file uploads (documents)
+  bot.on('document', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId || !isAllowed(userId)) return;
+
+    const doc = ctx.message.document;
+    const chatId = ctx.chat.id;
+    const caption = ctx.message.caption || '';
+
+    try {
+      // Get file from Telegram
+      const fileLink = await ctx.telegram.getFileLink(doc.file_id);
+      const response = await fetch(fileLink.href);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      // Save to user's workspace
+      const userWorkspace = join(config.cwd, 'users', String(userId), 'files');
+      if (!existsSync(userWorkspace)) {
+        mkdirSync(userWorkspace, { recursive: true });
+      }
+
+      const filename = doc.file_name || `file_${Date.now()}`;
+      const filepath = join(userWorkspace, filename);
+      writeFileSync(filepath, buffer);
+
+      // Save to database
+      const fileRecord = db.files.addFile({
+        user_id: userId,
+        message_id: ctx.message.message_id,
+        telegram_file_id: doc.file_id,
+        filename: filename,
+        mime_type: doc.mime_type || 'application/octet-stream',
+        size_bytes: doc.file_size || buffer.length,
+        storage_path: filepath,
+      });
+
+      console.log(`[file] Saved ${filename} (${doc.file_size} bytes) for user ${userId}`);
+
+      // React to confirm receipt
+      await ctx.telegram.setMessageReaction(chatId, ctx.message.message_id, [{ type: 'emoji', emoji: '👀' as any }]);
+
+      // If there's a caption, process it as a message with file context
+      if (caption) {
+        const fileContext = `[Пользователь прислал файл: ${filename} (${doc.mime_type}, ${doc.file_size} байт). Файл сохранён: ${filepath}]\n\n${caption}`;
+        ctx.message.text = fileContext;
+        // Let the text handler process it
+      } else {
+        await ctx.reply(`📎 Файл сохранён: ${filename}\n\nМогу что-то с ним сделать? Напиши, что нужно.`);
+      }
+    } catch (e: any) {
+      console.error('[file] Error:', e.message);
+      await ctx.reply(`❌ Ошибка загрузки файла: ${e.message}`);
+    }
+  });
+
+  // Handle photo uploads with vision
+  bot.on('photo', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId || !isAllowed(userId)) return;
+
+    const photos = ctx.message.photo;
+    const photo = photos[photos.length - 1]; // Get highest resolution
+    const chatId = ctx.chat.id;
+    const messageId = ctx.message.message_id;
+    const caption = ctx.message.caption || 'Что на этом изображении?';
+    const username = ctx.from?.username || ctx.from?.first_name || 'user';
+
+    // Check rate limits
+    if (!canAcceptUser(userId)) {
+      await ctx.reply('⏳ Слишком много запросов. Подожди немного.');
+      return;
+    }
+
+    markUserActive(userId);
+    updateUserActivity(userId);
+
+    await withUserLock(userId, async () => {
+      const typing = setInterval(() => ctx.sendChatAction('typing').catch(() => {}), CONFIG.bot.typingInterval);
+
+      try {
+        // Get file from Telegram
+        const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+        const response = await fetch(fileLink.href);
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        // Save to user's workspace
+        const userWorkspace = join(config.cwd, 'users', String(userId), 'files');
+        if (!existsSync(userWorkspace)) {
+          mkdirSync(userWorkspace, { recursive: true });
+        }
+
+        const filename = `photo_${Date.now()}.jpg`;
+        const filepath = join(userWorkspace, filename);
+        writeFileSync(filepath, buffer);
+
+        // Save to database
+        db.files.addFile({
+          user_id: userId,
+          message_id: messageId,
+          telegram_file_id: photo.file_id,
+          filename: filename,
+          mime_type: 'image/jpeg',
+          size_bytes: photo.file_size || buffer.length,
+          storage_path: filepath,
+        });
+
+        console.log(`[photo] ${filename} (${photo.file_size} bytes) from @${username}`);
+
+        // React to confirm receipt
+        try {
+          await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '👀' as any }]);
+        } catch {}
+
+        // Convert to base64 for vision model
+        const base64 = buffer.toString('base64');
+
+        // Get agent and run with image
+        const agent = getAgent(userId);
+        const sessionId = userId.toString();
+
+        console.log(`[IN] @${username} (${userId}): [фото] ${caption}`);
+
+        const agentResponse = await agent.run(
+          sessionId,
+          caption,
+          (toolName) => console.log(`[tool] ${toolName}`),
+          chatId,
+          ctx.chat.type as any,
+          { base64, mimeType: 'image/jpeg' }
+        );
+
+        clearInterval(typing);
+
+        // React done
+        try {
+          await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: getRandomDoneEmoji() as any }]);
+        } catch {}
+
+        // Send response
+        const finalResponse = agentResponse || 'Не удалось обработать изображение';
+        console.log(`[OUT] → @${username}:\n${finalResponse}\n`);
+
+        const html = mdToHtml(finalResponse);
+        const parts = splitMessage(html);
+
+        for (let i = 0; i < parts.length; i++) {
+          const sent = await safeSend(chatId, () =>
+            ctx.reply(parts[i], {
+              parse_mode: 'HTML',
+              reply_parameters: i === 0 ? { message_id: messageId } : undefined
+            })
+          );
+          if (sent?.message_id) recordBotMessage(chatId, sent.message_id);
+        }
+
+        saveChatMessage(username, `[фото] ${caption}`, false, chatId);
+        saveChatMessage('LocalTopSH', finalResponse.slice(0, CONFIG.messages.historySliceLength), true, chatId);
+
+      } catch (e: any) {
+        clearInterval(typing);
+        console.error('[photo] Error:', e.message);
+        await ctx.reply(`❌ Ошибка: ${e.message?.slice(0, 200)}`);
+      } finally {
+        markUserInactive(userId);
+      }
+    });
+  });
+
   // Global error handler - prevent crashes
   bot.catch((err: any, ctx) => {
     console.error('[bot] Unhandled error:', err.message);

@@ -9,28 +9,30 @@ import { join, dirname } from 'path';
 import { CONFIG } from '../config.js';
 
 const MEMORY_FILE = 'MEMORY.md';
-// Global files in a shared directory
-const SHARED_DIR = '/workspace/_shared';
-const CHATS_DIR = `${SHARED_DIR}/chats`;
-const GLOBAL_LOG_FILE = `${SHARED_DIR}/GLOBAL_LOG.md`;
+// Global files in a shared directory (use WORKSPACE env or fallback to ./workspace)
+const getSharedDir = () => join(process.env.WORKSPACE || './workspace', '_shared');
+const getChatsDir = () => join(getSharedDir(), 'chats');
+const getGlobalLogFile = () => join(getSharedDir(), 'GLOBAL_LOG.md');
 
 // Ensure directories exist
 function ensureSharedDir() {
-  if (!existsSync(SHARED_DIR)) {
-    mkdirSync(SHARED_DIR, { recursive: true });
+  const dir = getSharedDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
 }
 
 function ensureChatsDir() {
   ensureSharedDir();
-  if (!existsSync(CHATS_DIR)) {
-    mkdirSync(CHATS_DIR, { recursive: true });
+  const dir = getChatsDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
 }
 
 // Get chat history file path for a specific chat
 function getChatHistoryFile(chatId: number | string): string {
-  return `${CHATS_DIR}/chat_${chatId}.md`;
+  return join(getChatsDir(), `chat_${chatId}.md`);
 }
 
 // Track message count for periodic trolling
@@ -46,12 +48,12 @@ export function logGlobal(userId: number | string, action: string, details?: str
     const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const line = `| ${timestamp} | ${userId} | ${action} | ${details?.slice(0, CONFIG.storage.logDetailsLength) || '-'} |\n`;
     
-    if (!existsSync(GLOBAL_LOG_FILE)) {
+    if (!existsSync(getGlobalLogFile())) {
       const header = `# Global Activity Log\n\n| Time | User | Action | Details |\n|------|------|--------|--------|\n`;
-      writeFileSync(GLOBAL_LOG_FILE, header, 'utf-8');
+      writeFileSync(getGlobalLogFile(), header, 'utf-8');
     }
     
-    appendFileSync(GLOBAL_LOG_FILE, line, 'utf-8');
+    appendFileSync(getGlobalLogFile(), line, 'utf-8');
   } catch (e) {
     console.error('[logGlobal] Error:', e);
   }
@@ -62,10 +64,10 @@ export function logGlobal(userId: number | string, action: string, details?: str
  */
 export function getGlobalLog(lines = 50): string {
   try {
-    if (!existsSync(GLOBAL_LOG_FILE)) {
+    if (!existsSync(getGlobalLogFile())) {
       return '(no global log yet)';
     }
-    const content = readFileSync(GLOBAL_LOG_FILE, 'utf-8');
+    const content = readFileSync(getGlobalLogFile(), 'utf-8');
     const allLines = content.split('\n');
     return allLines.slice(-lines).join('\n');
   } catch {
@@ -111,7 +113,7 @@ export function saveChatMessage(username: string, text: string, isBot = false, c
     const line = `${timestamp} ${prefix} ${username}: ${text.slice(0, CONFIG.storage.chatMessageLength).replace(/\n/g, ' ')}\n`;
     
     // If no chatId provided, use default "global" 
-    const historyFile = chatId ? getChatHistoryFile(chatId) : `${CHATS_DIR}/chat_global.md`;
+    const historyFile = chatId ? getChatHistoryFile(chatId) : join(getChatsDir(), 'chat_global.md');
     
     let content = '';
     if (existsSync(historyFile)) {
@@ -138,7 +140,7 @@ export function saveChatMessage(username: string, text: string, isBot = false, c
  */
 export function getChatHistory(chatId?: number | string): string | null {
   try {
-    const historyFile = chatId ? getChatHistoryFile(chatId) : `${CHATS_DIR}/chat_global.md`;
+    const historyFile = chatId ? getChatHistoryFile(chatId) : join(getChatsDir(), 'chat_global.md');
     
     if (!existsSync(historyFile)) {
       return null;

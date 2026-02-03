@@ -5,8 +5,10 @@
 
 import { config as loadEnv } from 'dotenv';
 import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { createBot } from './bot/index.js';
 import { createGateway } from './gateway/server.js';
+import { setupDatabase, closeDatabase } from './db/index.js';
 
 // Load .env (fallback for local dev)
 loadEnv();
@@ -86,6 +88,10 @@ const config = {
 
 const mode = process.argv[2] || 'bot';
 
+// Initialize database
+const dbPath = join(config.cwd, 'october.db');
+setupDatabase(dbPath);
+
 if (mode === 'gateway') {
   const gateway = createGateway({
     port: config.gatewayPort,
@@ -115,7 +121,15 @@ if (mode === 'gateway') {
   ]);
   
   bot.launch();
-  
-  process.once('SIGINT', () => bot.stop('SIGINT'));
-  process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+  // Graceful shutdown
+  const shutdown = (signal: string) => {
+    console.log(`\n[shutdown] ${signal} received`);
+    bot.stop(signal);
+    closeDatabase();
+    process.exit(0);
+  };
+
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
 }

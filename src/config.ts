@@ -106,8 +106,12 @@ export const CONFIG = {
   },
 
   // ============== ADMIN ==============
+  // NOTE: Admin/whitelist management moved to src/admin/users.json
+  // Use /admin commands to manage users
   admin: {
-    userId: 809532582,            // VaKovaLskii - bot owner
+    // Legacy - kept for AFK command compatibility
+    // Real admin check now uses src/admin/users.ts
+    legacyUserId: 809532582,
   },
 
   // ============== DONE REACTIONS (after successful response) ==============

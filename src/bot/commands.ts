@@ -10,6 +10,7 @@ import { getSessionPendingCommands } from '../approvals/index.js';
 import { escapeHtml } from './formatters.js';
 import type { BotConfig } from './types.js';
 import { CONFIG } from '../config.js';
+import { isAdmin } from '../admin/index.js';
 
 // AFK state
 let afkUntil = 0;
@@ -118,9 +119,9 @@ export function setupPendingCommand(bot: Telegraf) {
 export function setupAfkCommand(bot: Telegraf) {
   bot.command('afk', async (ctx) => {
     const userId = ctx.from?.id;
-    // Only allow admin from config
-    if (userId !== CONFIG.admin.userId) {
-      await ctx.reply('Только хозяин может меня отправить по делам 😏');
+    // Only allow admins
+    if (!userId || !isAdmin(userId)) {
+      await ctx.reply('Только админы могут меня отправить по делам 😏');
       return;
     }
     

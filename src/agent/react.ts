@@ -31,6 +31,12 @@ export interface AgentConfig {
   exposedPorts?: number[];  // ports exposed to external network
 }
 
+// Image attachment for vision models
+export interface ImageAttachment {
+  base64: string;
+  mimeType: string;
+}
+
 // Simple session: just user-assistant pairs (no tool calls)
 export interface Session {
   history: Array<{ user: string; assistant: string }>;
@@ -144,28 +150,45 @@ ${chatHistory}
   
   // Build messages for API call (during agent loop)
   private buildMessages(
-    session: Session, 
+    session: Session,
     userMessage: string,
-    workingMessages: OpenAI.ChatCompletionMessageParam[] = []
+    workingMessages: OpenAI.ChatCompletionMessageParam[] = [],
+    image?: ImageAttachment
   ): OpenAI.ChatCompletionMessageParam[] {
     const messages: OpenAI.ChatCompletionMessageParam[] = [];
-    
+
     // 1. Fresh system prompt
     messages.push({ role: 'system', content: this.getSystemPrompt() });
-    
+
     // 2. Previous conversations (user-assistant pairs only)
     for (const conv of session.history) {
       messages.push({ role: 'user', content: conv.user });
       messages.push({ role: 'assistant', content: conv.assistant });
     }
-    
-    // 3. Current user message
+
+    // 3. Current user message (with optional image for vision)
     const dateStr = new Date().toISOString().slice(0, 10);
-    messages.push({ role: 'user', content: `[${dateStr}] ${userMessage}` });
-    
+    if (image) {
+      // Multimodal message with image
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: `[${dateStr}] ${userMessage}` },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${image.mimeType};base64,${image.base64}`
+            }
+          }
+        ] as any
+      });
+    } else {
+      messages.push({ role: 'user', content: `[${dateStr}] ${userMessage}` });
+    }
+
     // 4. Working messages (tool calls during current cycle)
     messages.push(...workingMessages);
-    
+
     return messages;
   }
   
@@ -175,7 +198,8 @@ ${chatHistory}
     userMessage: string,
     onToolCall?: (name: string) => void,
     chatId?: number,
-    chatType?: 'private' | 'group' | 'supergroup' | 'channel'
+    chatType?: 'private' | 'group' | 'supergroup' | 'channel',
+    image?: ImageAttachment
   ): Promise<string> {
     // Set current chat ID for history retrieval
     this.currentChatId = chatId;
@@ -195,12 +219,17 @@ ${chatHistory}
       iteration++;
       
       try {
-        // Build full message list
-        const messages = this.buildMessages(session, userMessage, workingMessages);
-        
+        // Build full message list (only include image on first iteration)
+        const messages = this.buildMessages(
+          session,
+          userMessage,
+          workingMessages,
+          iteration === 1 ? image : undefined
+        );
+
         // Minimal logging
         if (iteration === 1) {
-          console.log(`[agent] Turn ${iteration}...`);
+          console.log(`[agent] Turn ${iteration}...${image ? ' (with image)' : ''}`);
         }
         
         // Think: LLM decides what to do

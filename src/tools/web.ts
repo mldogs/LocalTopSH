@@ -105,38 +105,41 @@ export async function executeSearchWeb(
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
     let results: SearchResult[];
-    
-    // Try Proxy first (most secure)
-    if (proxyUrl) {
+
+    // Priority: Tavily > Z.AI > Proxy
+    if (tavilyApiKey) {
+      // Tavily as primary (better quality)
       try {
-        results = await searchViaProxy(args.query);
+        console.log('[search] Using Tavily...');
+        results = await searchTavily(args.query, tavilyApiKey);
       } catch (e: any) {
-        console.log(`[search] Proxy failed: ${e.message}`);
-        // Fall through to direct API
+        console.log(`[search] Tavily failed: ${e.message}, trying fallback...`);
         if (zaiApiKey) {
           results = await searchZai(args.query, zaiApiKey);
-        } else if (tavilyApiKey) {
-          results = await searchTavily(args.query, tavilyApiKey);
+        } else if (proxyUrl) {
+          results = await searchViaProxy(args.query);
         } else {
           throw e;
         }
       }
     } else if (zaiApiKey) {
-      // Direct Z.AI (local dev)
+      // Z.AI as fallback
       try {
+        console.log('[search] Using Z.AI...');
         results = await searchZai(args.query, zaiApiKey);
-      } catch (e) {
-        console.log('[search] Z.AI failed, trying Tavily...');
-        if (tavilyApiKey) {
-          results = await searchTavily(args.query, tavilyApiKey);
+      } catch (e: any) {
+        console.log(`[search] Z.AI failed: ${e.message}`);
+        if (proxyUrl) {
+          results = await searchViaProxy(args.query);
         } else {
           throw e;
         }
       }
-    } else if (tavilyApiKey) {
-      results = await searchTavily(args.query, tavilyApiKey);
+    } else if (proxyUrl) {
+      // Proxy as last resort
+      results = await searchViaProxy(args.query);
     } else {
-      return { success: false, error: "No search API configured (PROXY_URL or ZAI_API_KEY)" };
+      return { success: false, error: "No search API configured (TAVILY_API_KEY or ZAI_API_KEY)" };
     }
     
     if (!results.length) {
