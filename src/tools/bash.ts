@@ -7,6 +7,8 @@
 
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import { existsSync, readFileSync } from 'fs';
+import { relative, resolve, isAbsolute } from 'path';
 import { CONFIG } from '../config.js';
 
 const execAsync = promisify(exec);
@@ -186,6 +188,155 @@ export interface ExecuteContext {
   chatType?: 'private' | 'group' | 'supergroup' | 'channel';
 }
 
+function isPathInsideWorkspace(targetPath: string, workspaceRoot: string): boolean {
+  const rel = relative(resolve(workspaceRoot), resolve(targetPath));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function extractWorkspacePaths(command: string): string[] {
+  const matches = command.match(/\/workspace(?:\/[^\s"'`|;&()]+)?/g) || [];
+  return Array.from(new Set(matches.map(m => resolve(m))));
+}
+
+function extractCdTargets(command: string): string[] {
+  const targets: string[] = [];
+  const cdRegex = /(?:^|[;\n]|&&|\|\||\||&|\(|\))\s*cd(?:\s+([^;&|()\n]+))?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = cdRegex.exec(command)) !== null) {
+    targets.push((match[1] || '').trim());
+  }
+  return targets;
+}
+
+function checkServerExecution(command: string, cwd: string): { blocked: boolean; reason?: string } {
+  const directServerCommands: RegExp[] = [
+    /\bpython(?:3)?\s+-m\s+http\.server\b/i,
+    /\bflask\s+run\b/i,
+    /\buvicorn\b/i,
+    /\bgunicorn\b/i,
+    /\b(?:npx\s+)?(?:http-server|live-server|serve)\b/i,
+    /\bnc\b[^\n]*\s-l\b/i,
+    /\bsocat\b[^\n]*TCP-LISTEN/i,
+  ];
+
+  for (const pattern of directServerCommands) {
+    if (pattern.test(command)) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: Starting network servers is disabled for security',
+      };
+    }
+  }
+
+  const inlineServerIndicators: RegExp[] = [
+    /createServer\s*\(/i,
+    /\.listen\s*\(/i,
+    /express\s*\(/i,
+    /Flask\s*\(/i,
+    /FastAPI\s*\(/i,
+    /uvicorn\.run\s*\(/i,
+    /\bHTTPServer\s*\(/i,
+    /\bsocketserver\.TCPServer\b/i,
+    /\.serve_forever\s*\(/i,
+  ];
+
+  if ((/\bnode\b[^\n]*\s-(e|p)\b/i.test(command) || /\bpython(?:3)?\b[^\n]*\s-c\b/i.test(command))
+      && inlineServerIndicators.some(p => p.test(command))) {
+    return {
+      blocked: true,
+      reason: 'BLOCKED: Inline server creation commands are not allowed',
+    };
+  }
+
+  const scriptPatterns: RegExp[] = [
+    /\b(?:node|bun|deno)\s+([^\s|;&]+?\.(?:cjs|mjs|js|ts))\b/i,
+    /\bpython(?:3)?\s+([^\s|;&]+?\.py)\b/i,
+  ];
+
+  const serverCodePatterns: RegExp[] = [
+    /createServer\s*\(/i,
+    /\.listen\s*\(/i,
+    /express\s*\(/i,
+    /fastify\s*\(/i,
+    /koa\s*\(/i,
+    /Flask\s*\(/i,
+    /FastAPI\s*\(/i,
+    /uvicorn\.run\s*\(/i,
+    /HTTPServer\s*\(/i,
+    /socketserver\.TCPServer/i,
+  ];
+
+  for (const pattern of scriptPatterns) {
+    const match = command.match(pattern);
+    if (!match?.[1]) continue;
+    const scriptPath = match[1].replace(/^['"]|['"]$/g, '');
+    const resolvedScriptPath = scriptPath.startsWith('/')
+      ? resolve(scriptPath)
+      : resolve(cwd, scriptPath);
+
+    if (!existsSync(resolvedScriptPath)) continue;
+
+    try {
+      const content = readFileSync(resolvedScriptPath, 'utf-8').slice(0, 100_000);
+
+      // Block obvious secret and cross-workspace access inside scripts (bypasses command regex)
+      if (/\/run\/secrets/i.test(content)) {
+        return {
+          blocked: true,
+          reason: 'BLOCKED: Script references Docker secrets path (/run/secrets)',
+        };
+      }
+
+      if (/(^|[^\w])\.\.(\/|\\)/.test(content)) {
+        return {
+          blocked: true,
+          reason: 'BLOCKED: Script contains parent directory traversal (..)',
+        };
+      }
+
+      const userWsMatch = resolve(cwd).match(/\/workspace\/(\d+)/);
+      if (userWsMatch) {
+        const userId = userWsMatch[1];
+
+        if (/\/workspace\/_shared/i.test(content)) {
+          return {
+            blocked: true,
+            reason: 'BLOCKED: Script references shared workspace data (/workspace/_shared)',
+          };
+        }
+
+        // Block /workspace root usage and other users' workspace IDs
+        if (/\/workspace(?!\/\d+)/.test(content)) {
+          return {
+            blocked: true,
+            reason: 'BLOCKED: Script references /workspace root',
+          };
+        }
+
+        const idMatches = Array.from(content.matchAll(/\/workspace\/(\d+)/g)).map(m => m[1]);
+        const otherIds = idMatches.filter(id => id !== userId);
+        if (otherIds.length) {
+          return {
+            blocked: true,
+            reason: 'BLOCKED: Script references other user workspace(s)',
+          };
+        }
+      }
+
+      if (serverCodePatterns.some(p => p.test(content))) {
+        return {
+          blocked: true,
+          reason: 'BLOCKED: Running custom server scripts is disabled for security',
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return { blocked: false };
+}
+
 /**
  * Check if command tries to access other user's workspace
  */
@@ -195,30 +346,83 @@ function checkWorkspaceIsolation(command: string, userWorkspace: string): { bloc
   if (!userMatch) {
     return { blocked: false };  // Not in workspace structure
   }
-  const userId = userMatch[1];
-  
-  // Patterns that access other workspaces
-  const otherWorkspacePatterns = [
-    // Direct access to /workspace/OTHER_ID
-    new RegExp(`/workspace/(?!${userId})[\\d_]`, 'i'),
-    // Wildcard access to all workspaces
-    /\/workspace\/\*/,
-    // Find/ls/cat across /workspace root (show all users)
-    /\b(find|ls|cat|head|tail|grep|less|more|tree|du|wc)\s+[^|]*\/workspace\s*($|[|;>&\n])/,
-    // Access to _shared folder (global logs)
-    /\/workspace\/_shared/i,
-    // Parent directory traversal from workspace
-    /\.\.\/\.\./,
-    // glob patterns that might match other workspaces
-    /\/workspace\/\[/,
-    /\/workspace\/\{/,
-  ];
-  
-  for (const pattern of otherWorkspacePatterns) {
-    if (pattern.test(command)) {
-      return { 
-        blocked: true, 
-        reason: 'BLOCKED: Cannot access other user workspaces. Use only your own workspace.' 
+  const resolvedWorkspace = resolve(userWorkspace);
+
+  // Block direct access to Docker Secrets (even if output sanitization would redact).
+  if (/\/(?:var\/)?run\/secrets\b/i.test(command)) {
+    return {
+      blocked: true,
+      reason: 'BLOCKED: Access to Docker secrets (/run/secrets) is not allowed.',
+    };
+  }
+
+  // Block directory changes outside the user's workspace.
+  // Otherwise users can escape via `cd / && ls workspace` and access other workspaces with relative paths.
+  const cdTargets = extractCdTargets(command);
+  for (const rawTarget of cdTargets) {
+    if (!rawTarget) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: `cd` without an explicit target is not allowed.',
+      };
+    }
+
+    if (rawTarget === '-' || rawTarget.startsWith('~')) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: `cd` to home/previous directory is not allowed.',
+      };
+    }
+
+    // Disallow dynamic paths we cannot safely evaluate.
+    if (/[`$]/.test(rawTarget) || /\$\(/.test(rawTarget)) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: Dynamic `cd` targets are not allowed.',
+      };
+    }
+
+    const target = rawTarget.replace(/^['"]|['"]$/g, '');
+    const resolvedTarget = target.startsWith('/')
+      ? resolve(target)
+      : resolve(resolvedWorkspace, target);
+
+    if (!isPathInsideWorkspace(resolvedTarget, resolvedWorkspace)) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: Cannot change directory outside your workspace.',
+      };
+    }
+  }
+
+  // Block parent traversal attempts (prevents `cd ..` / `../` escape from workspace root)
+  if (/(^|[^\w])\.\.(\/|\\)/.test(command) || /\bcd\s+\.\.(\s|$)/i.test(command)) {
+    return {
+      blocked: true,
+      reason: 'BLOCKED: Parent directory traversal is not allowed. Use only paths inside your workspace.',
+    };
+  }
+  const workspacePaths = extractWorkspacePaths(command);
+
+  for (const workspacePath of workspacePaths) {
+    if (workspacePath === '/workspace' || workspacePath === '/workspace/') {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: Cannot access /workspace root',
+      };
+    }
+
+    if (workspacePath.startsWith('/workspace/_shared')) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: Cannot access shared workspace data',
+      };
+    }
+
+    if (!isPathInsideWorkspace(workspacePath, resolvedWorkspace)) {
+      return {
+        blocked: true,
+        reason: 'BLOCKED: Cannot access other user workspaces. Use only your own workspace.',
       };
     }
   }
@@ -244,6 +448,15 @@ export async function execute(
     return {
       success: false,
       error: `🚫 ${workspaceCheck.reason}`,
+    };
+  }
+
+  const serverCheck = checkServerExecution(args.command, workDir);
+  if (serverCheck.blocked) {
+    console.log(`[SECURITY] Server execution blocked: ${args.command}`);
+    return {
+      success: false,
+      error: `🚫 ${serverCheck.reason}`,
     };
   }
   

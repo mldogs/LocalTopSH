@@ -15,7 +15,7 @@ export const NEUTRAL_REACTIONS = CONFIG.allReactions.neutral;
 export const ALL_REACTIONS = getAllReactions();
 
 export function getRandomReaction(sentiment: 'positive' | 'negative' | 'neutral' | 'random'): string {
-  let pool: string[];
+  let pool: readonly string[];
   const weights = CONFIG.reactions.weights;
   
   if (sentiment === 'random') {

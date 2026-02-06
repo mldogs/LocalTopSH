@@ -94,7 +94,7 @@ export async function withUserLock<T>(userId: number, fn: () => Promise<T>): Pro
 
 // Global concurrent users limiter
 const activeUsers = new Set<number>();
-let maxConcurrentUsers = CONFIG.users.maxConcurrent;
+let maxConcurrentUsers: number = CONFIG.users.maxConcurrent;
 
 export function setMaxConcurrentUsers(max: number) {
   maxConcurrentUsers = max;

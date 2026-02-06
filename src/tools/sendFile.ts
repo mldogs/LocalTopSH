@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readFileSync, statSync } from 'fs';
-import { join, resolve, basename } from 'path';
+import { join, resolve, basename, relative, isAbsolute } from 'path';
 
 // Callback for sending file (set from bot)
 let sendFileCallback: ((
@@ -61,6 +61,11 @@ const BLOCKED_PATTERNS = [
 // Max file size (50MB)
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
+function isPathInsideWorkspace(targetPath: string, workspaceRoot: string): boolean {
+  const rel = relative(resolve(workspaceRoot), resolve(targetPath));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
 export async function execute(
   args: { path: string; caption?: string },
   cwd: string,
@@ -81,7 +86,7 @@ export async function execute(
   const cwdResolved = resolve(cwd);
   
   // Security: only allow files within workspace
-  if (!resolved.startsWith(cwdResolved) && !resolved.startsWith('/workspace/')) {
+  if (!isPathInsideWorkspace(resolved, cwdResolved)) {
     return {
       success: false,
       error: '🚫 BLOCKED: Can only send files from your workspace',

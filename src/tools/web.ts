@@ -277,6 +277,38 @@ function isUrlSafe(url: string): { safe: boolean; reason?: string } {
   return { safe: true };
 }
 
+async function fetchWithSafeRedirects(initialUrl: string): Promise<Response> {
+  let currentUrl = initialUrl;
+  const maxRedirects = 5;
+
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
+    const response = await fetch(currentUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Agent/1.0)' },
+      redirect: 'manual',
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) {
+        throw new Error('Redirect without location header');
+      }
+
+      const nextUrl = new URL(location, currentUrl).toString();
+      const redirectCheck = isUrlSafe(nextUrl);
+      if (!redirectCheck.safe) {
+        throw new Error(`BLOCKED_REDIRECT:${redirectCheck.reason}`);
+      }
+
+      currentUrl = nextUrl;
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error('Too many redirects');
+}
+
 export async function executeFetchPage(
   args: { url: string },
   zaiApiKey?: string
@@ -311,20 +343,7 @@ export async function executeFetchPage(
   
   // Fallback to direct fetch
   try {
-    const response = await fetch(args.url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Agent/1.0)' },
-      redirect: 'follow',
-    });
-    
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (location) {
-        const redirectCheck = isUrlSafe(location);
-        if (!redirectCheck.safe) {
-          return { success: false, error: `🚫 BLOCKED: Redirect to internal URL blocked` };
-        }
-      }
-    }
+    const response = await fetchWithSafeRedirects(args.url);
     
     if (!response.ok) {
       return { success: false, error: `HTTP ${response.status}` };
@@ -333,6 +352,10 @@ export async function executeFetchPage(
     const text = await response.text();
     return { success: true, output: text.slice(0, 50000) };
   } catch (e: any) {
+    if (typeof e?.message === 'string' && e.message.startsWith('BLOCKED_REDIRECT:')) {
+      const reason = e.message.replace('BLOCKED_REDIRECT:', '') || 'Redirect to internal URL blocked';
+      return { success: false, error: `🚫 BLOCKED: ${reason}` };
+    }
     return { success: false, error: e.message };
   }
 }

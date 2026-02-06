@@ -6,6 +6,10 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "gateway": "tsx src/index.ts gateway",
+    "typecheck": "tsc --noEmit",
+    "test:security": "node --test dist/tests/security-regression.test.js",
+    "build:tests": "tsc -p tsconfig.tests.json && mkdir -p dist/approvals && cp src/approvals/blocked-patterns.json dist/approvals/blocked-patterns.json",
+    "verify:release": "npm run typecheck && npm run build:tests && npm run test:security",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"

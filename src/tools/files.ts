@@ -3,10 +3,10 @@
  * read_file, write_file, edit_file, delete_file, search_files, search_text, list_directory
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, lstatSync, realpathSync } from 'fs';
-import { join, dirname, resolve, basename } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, lstatSync, realpathSync, readdirSync, statSync } from 'fs';
+import { join, dirname, resolve, basename, relative, isAbsolute } from 'path';
 import fg from 'fast-glob';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { CONFIG } from '../config.js';
 
 // Files that should NEVER be read - contain secrets
@@ -82,6 +82,17 @@ function containsDangerousCode(content: string): { dangerous: boolean; reason?: 
       return { dangerous: true, reason };
     }
   }
+
+  const hasServerCode = /(createServer\s*\(|http\.createServer|express\s*\(|fastify\s*\(|koa\s*\(|Flask\s*\(|FastAPI\s*\()/i.test(content);
+  const hasFileRead = /(readFileSync|readdirSync|createReadStream|fs\.readFile|fs\.readdir|open\s*\(|os\.listdir)/i.test(content);
+  const hasUserControlledPath = /(searchParams\.get|req\.query|req\.url|request\.args|get\(\s*['"](?:f|d|path|file|dir)['"])/i.test(content);
+
+  if (hasServerCode && hasFileRead && hasUserControlledPath) {
+    return {
+      dangerous: true,
+      reason: 'file exfiltration server pattern',
+    };
+  }
   
   return { dangerous: false };
 }
@@ -117,43 +128,37 @@ function isSensitiveFile(filePath: string): boolean {
 }
 
 /**
- * Check if path tries to access another user's workspace or list all workspaces
+ * Returns true if target path is inside workspace root (with boundary safety)
  */
-function isOtherUserWorkspace(filePath: string, userWorkspace: string): boolean {
-  const resolvedPath = resolve(filePath);
-  const resolvedUserWs = resolve(userWorkspace);
-  
-  // Block listing /workspace directly (would show all user folders)
+function isPathInsideWorkspace(targetPath: string, workspaceRoot: string): boolean {
+  const rel = relative(resolve(workspaceRoot), resolve(targetPath));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/**
+ * Unified workspace access policy
+ */
+function ensureWorkspaceAccess(pathToCheck: string, workspaceRoot: string): { allowed: boolean; reason?: string } {
+  const resolvedPath = resolve(pathToCheck);
+  const resolvedWorkspace = resolve(workspaceRoot);
+
   if (resolvedPath === '/workspace' || resolvedPath === '/workspace/') {
-    console.log(`[SECURITY] Blocked listing /workspace root`);
-    return true;
+    return { allowed: false, reason: 'Cannot access /workspace root' };
   }
-  
-  // Block access to _shared folder (global logs)
-  if (resolvedPath.includes('/workspace/_shared')) {
-    console.log(`[SECURITY] Blocked access to shared folder: ${filePath}`);
-    return true;
+
+  if (resolvedPath.startsWith('/workspace/_shared')) {
+    return { allowed: false, reason: 'Cannot access shared workspace data' };
   }
-  
-  // Extract user ID from user's workspace
-  const userWsMatch = resolvedUserWs.match(/\/workspace\/(\d+)/);
-  if (!userWsMatch) {
-    return false; // Not in standard workspace structure
+
+  if (resolvedPath.startsWith('/workspace/') && !isPathInsideWorkspace(resolvedPath, resolvedWorkspace)) {
+    return { allowed: false, reason: 'Cannot access other user workspace' };
   }
-  const userId = userWsMatch[1];
-  
-  // If path starts with /workspace/ but is NOT user's workspace - block
-  if (resolvedPath.startsWith('/workspace/')) {
-    // Allow user's own workspace
-    if (resolvedPath.startsWith(resolvedUserWs)) {
-      return false;
-    }
-    // Block everything else in /workspace
-    console.log(`[SECURITY] Blocked access outside own workspace: ${filePath}`);
-    return true;
+
+  if (!isPathInsideWorkspace(resolvedPath, resolvedWorkspace)) {
+    return { allowed: false, reason: 'Cannot access files outside your workspace' };
   }
-  
-  return false;
+
+  return { allowed: true };
 }
 
 /**
@@ -171,7 +176,7 @@ function isSymlinkEscape(filePath: string, workspacePath: string): { escape: boo
     const realWorkspace = realpathSync(workspacePath);
     
     // Check if real path is within workspace
-    if (!realPath.startsWith(realWorkspace + '/') && realPath !== realWorkspace) {
+    if (!isPathInsideWorkspace(realPath, realWorkspace)) {
       console.log(`[SECURITY] Symlink escape detected: ${filePath} -> ${realPath}`);
       return { 
         escape: true, 
@@ -223,40 +228,41 @@ export async function executeRead(
   cwd: string
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
-  
-  // Security: Block access to other user's workspace
-  if (isOtherUserWorkspace(fullPath, cwd)) {
+  const resolvedPath = resolve(fullPath);
+
+  const access = ensureWorkspaceAccess(resolvedPath, cwd);
+  if (!access.allowed) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+      error: `🚫 BLOCKED: ${access.reason}` 
     };
   }
   
   // Security: Block reading sensitive files
-  if (isSensitiveFile(fullPath)) {
-    console.log(`[SECURITY] Blocked read of sensitive file: ${fullPath}`);
+  if (isSensitiveFile(resolvedPath)) {
+    console.log(`[SECURITY] Blocked read of sensitive file: ${resolvedPath}`);
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot read sensitive file (${basename(fullPath)}). This file may contain secrets.` 
+      error: `🚫 BLOCKED: Cannot read sensitive file (${basename(resolvedPath)}). This file may contain secrets.` 
     };
   }
   
   // Security: Check for symlink escape
-  const symlinkCheck = isSymlinkEscape(fullPath, cwd);
+  const symlinkCheck = isSymlinkEscape(resolvedPath, cwd);
   if (symlinkCheck.escape) {
-    console.log(`[SECURITY] Symlink escape blocked: ${fullPath}`);
+    console.log(`[SECURITY] Symlink escape blocked: ${resolvedPath}`);
     return { 
       success: false, 
       error: `🚫 BLOCKED: ${symlinkCheck.reason}` 
     };
   }
   
-  if (!existsSync(fullPath)) {
-    return { success: false, error: `File not found: ${fullPath}` };
+  if (!existsSync(resolvedPath)) {
+    return { success: false, error: `File not found: ${args.path}` };
   }
   
   try {
-    let content = readFileSync(fullPath, 'utf-8');
+    let content = readFileSync(resolvedPath, 'utf-8');
     
     if (args.offset !== undefined || args.limit !== undefined) {
       const lines = content.split('\n');
@@ -298,35 +304,25 @@ export async function executeWrite(
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
   const resolvedPath = resolve(fullPath);
-  const resolvedCwd = resolve(cwd);
-  
-  // Security: Block access to other user's workspace
-  if (isOtherUserWorkspace(fullPath, cwd)) {
+
+  const access = ensureWorkspaceAccess(resolvedPath, cwd);
+  if (!access.allowed) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot access other user's workspace` 
-    };
-  }
-  
-  // Security: Prevent writing outside workspace
-  if (!resolvedPath.startsWith(resolvedCwd + '/') && resolvedPath !== resolvedCwd) {
-    console.log(`[SECURITY] Blocked write outside workspace: ${fullPath}`);
-    return { 
-      success: false, 
-      error: '🚫 BLOCKED: Cannot write files outside workspace' 
+      error: `🚫 BLOCKED: ${access.reason}` 
     };
   }
   
   // Security: Block writing to sensitive files
-  if (isSensitiveFile(fullPath)) {
+  if (isSensitiveFile(resolvedPath)) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot write to sensitive file (${basename(fullPath)})` 
+      error: `🚫 BLOCKED: Cannot write to sensitive file (${basename(resolvedPath)})` 
     };
   }
   
   // Security: Check for symlink escape (if file already exists)
-  const symlinkCheck = isSymlinkEscape(fullPath, cwd);
+  const symlinkCheck = isSymlinkEscape(resolvedPath, cwd);
   if (symlinkCheck.escape) {
     return { 
       success: false, 
@@ -345,11 +341,11 @@ export async function executeWrite(
   }
   
   try {
-    const dir = dirname(fullPath);
+    const dir = dirname(resolvedPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(fullPath, args.content, 'utf-8');
+    writeFileSync(resolvedPath, args.content, 'utf-8');
     return { success: true, output: `Written ${args.content.length} bytes to ${args.path}` };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -379,25 +375,26 @@ export async function executeEdit(
   cwd: string
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
-  
-  // Security: Block access to other user's workspace
-  if (isOtherUserWorkspace(fullPath, cwd)) {
+  const resolvedPath = resolve(fullPath);
+
+  const access = ensureWorkspaceAccess(resolvedPath, cwd);
+  if (!access.allowed) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+      error: `🚫 BLOCKED: ${access.reason}` 
     };
   }
   
   // Security: Block editing sensitive files
-  if (isSensitiveFile(fullPath)) {
+  if (isSensitiveFile(resolvedPath)) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot edit sensitive file (${basename(fullPath)})` 
+      error: `🚫 BLOCKED: Cannot edit sensitive file (${basename(resolvedPath)})` 
     };
   }
   
   // Security: Check for symlink escape
-  const symlinkCheck = isSymlinkEscape(fullPath, cwd);
+  const symlinkCheck = isSymlinkEscape(resolvedPath, cwd);
   if (symlinkCheck.escape) {
     return { 
       success: false, 
@@ -405,8 +402,8 @@ export async function executeEdit(
     };
   }
   
-  if (!existsSync(fullPath)) {
-    return { success: false, error: `File not found: ${fullPath}` };
+  if (!existsSync(resolvedPath)) {
+    return { success: false, error: `File not found: ${args.path}` };
   }
   
   // Security: Check new content for dangerous code
@@ -420,7 +417,7 @@ export async function executeEdit(
   }
   
   try {
-    const content = readFileSync(fullPath, 'utf-8');
+    const content = readFileSync(resolvedPath, 'utf-8');
     
     if (!content.includes(args.old_text)) {
       const preview = content.slice(0, 2000);
@@ -428,7 +425,7 @@ export async function executeEdit(
     }
     
     const newContent = content.replace(args.old_text, args.new_text);
-    writeFileSync(fullPath, newContent, 'utf-8');
+    writeFileSync(resolvedPath, newContent, 'utf-8');
     return { success: true, output: `Edited ${args.path}` };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -456,28 +453,22 @@ export async function executeDelete(
   cwd: string
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   const fullPath = args.path.startsWith('/') ? args.path : join(cwd, args.path);
-  const resolved = resolve(fullPath);
-  const cwdResolved = resolve(cwd);
-  
-  // Security: Block access to other user's workspace
-  if (isOtherUserWorkspace(fullPath, cwd)) {
+  const resolvedPath = resolve(fullPath);
+
+  const access = ensureWorkspaceAccess(resolvedPath, cwd);
+  if (!access.allowed) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+      error: `🚫 BLOCKED: ${access.reason}` 
     };
   }
-  
-  // Security: only allow deletion within workspace
-  if (!resolved.startsWith(cwdResolved)) {
-    return { success: false, error: `Security: cannot delete files outside workspace` };
-  }
-  
-  if (!existsSync(fullPath)) {
-    return { success: false, error: `File not found: ${fullPath}` };
+
+  if (!existsSync(resolvedPath)) {
+    return { success: false, error: `File not found: ${args.path}` };
   }
   
   try {
-    unlinkSync(fullPath);
+    unlinkSync(resolvedPath);
     return { success: true, output: `Deleted: ${args.path}` };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -561,26 +552,98 @@ export async function executeSearchText(
   const searchPath = args.path 
     ? (args.path.startsWith('/') ? args.path : join(cwd, args.path))
     : cwd;
+
+  const access = ensureWorkspaceAccess(searchPath, cwd);
+  if (!access.allowed) {
+    return {
+      success: false,
+      error: `🚫 BLOCKED: ${access.reason}`,
+    };
+  }
+
+  const maxContext = 10;
+  const contextBefore = Math.min(Math.max(args.context_before || 0, 0), maxContext);
+  const contextAfter = Math.min(Math.max(args.context_after || 0, 0), maxContext);
   
   try {
-    const flags: string[] = ['-rn'];
-    
-    if (args.ignore_case) flags.push('-i');
-    if (args.files_only) flags.push('-l');
-    if (args.context_before) flags.push(`-B${args.context_before}`);
-    if (args.context_after) flags.push(`-A${args.context_after}`);
-    
-    // Exclude common junk AND sensitive files
-    flags.push('--exclude-dir=node_modules', '--exclude-dir=.git', '--exclude-dir=dist');
-    flags.push('--exclude=*.env*', '--exclude=*credentials*', '--exclude=*secret*');
-    flags.push('--exclude=*.pem', '--exclude=*.key', '--exclude=id_rsa*');
-    
-    const escapedPattern = args.pattern.replace(/"/g, '\\"');
-    const cmd = `grep ${flags.join(' ')} "${escapedPattern}" "${searchPath}" 2>/dev/null | head -200`;
-    const output = execSync(cmd, { encoding: 'utf-8', cwd, timeout: CONFIG.timeouts.grepTimeout });
-    return { success: true, output: output || "(no matches)" };
-  } catch {
-    return { success: true, output: "(no matches)" };
+    const rgArgs: string[] = [
+      '--line-number',
+      '--no-heading',
+      '--max-count',
+      '200',
+      '--glob',
+      '!node_modules/**',
+      '--glob',
+      '!.git/**',
+      '--glob',
+      '!dist/**',
+      '--glob',
+      '!.env*',
+      '--glob',
+      '!*credentials*',
+      '--glob',
+      '!*secret*',
+      '--glob',
+      '!*id_rsa*',
+      '--glob',
+      '!*.pem',
+      '--glob',
+      '!*.key',
+    ];
+
+    if (args.ignore_case) rgArgs.push('--ignore-case');
+    if (args.files_only) rgArgs.push('--files-with-matches');
+    if (contextBefore > 0) rgArgs.push(`-B${contextBefore}`);
+    if (contextAfter > 0) rgArgs.push(`-A${contextAfter}`);
+
+    rgArgs.push('--', args.pattern, searchPath);
+
+    const rgResult = spawnSync('rg', rgArgs, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: CONFIG.timeouts.grepTimeout,
+    });
+
+    if (!rgResult.error) {
+      const output = (rgResult.stdout || '').trim();
+      if (rgResult.status === 0) {
+        const lines = output.split('\n').slice(0, 200).join('\n');
+        return { success: true, output: lines || '(no matches)' };
+      }
+      if (rgResult.status === 1) {
+        return { success: true, output: '(no matches)' };
+      }
+      return { success: false, error: rgResult.stderr?.trim() || 'Search failed' };
+    }
+
+    const grepArgs: string[] = ['-rn'];
+    if (args.ignore_case) grepArgs.push('-i');
+    if (args.files_only) grepArgs.push('-l');
+    if (contextBefore > 0) grepArgs.push(`-B${contextBefore}`);
+    if (contextAfter > 0) grepArgs.push(`-A${contextAfter}`);
+    grepArgs.push('--exclude-dir=node_modules', '--exclude-dir=.git', '--exclude-dir=dist');
+    grepArgs.push('--exclude=*.env*', '--exclude=*credentials*', '--exclude=*secret*');
+    grepArgs.push('--exclude=*.pem', '--exclude=*.key', '--exclude=id_rsa*');
+    grepArgs.push('--', args.pattern, searchPath);
+
+    const grepResult = spawnSync('grep', grepArgs, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: CONFIG.timeouts.grepTimeout,
+    });
+
+    if (grepResult.status === 0) {
+      const lines = (grepResult.stdout || '').trim().split('\n').slice(0, 200).join('\n');
+      return { success: true, output: lines || '(no matches)' };
+    }
+
+    if (grepResult.status === 1) {
+      return { success: true, output: '(no matches)' };
+    }
+
+    return { success: false, error: grepResult.stderr?.trim() || 'Search failed' };
+  } catch (e: any) {
+    return { success: false, error: e.message };
   }
 }
 
@@ -620,19 +683,20 @@ export async function executeListDirectory(
   const dir = args.path 
     ? (args.path.startsWith('/') ? args.path : join(cwd, args.path))
     : cwd;
-  
-  // Security: Block access to other user's workspace
-  if (isOtherUserWorkspace(dir, cwd)) {
+
+  const access = ensureWorkspaceAccess(dir, cwd);
+  if (!access.allowed) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot access other user's workspace` 
+      error: `🚫 BLOCKED: ${access.reason}` 
     };
   }
   
   // Security: Block listing sensitive directories
-  const resolvedDir = resolve(dir).toLowerCase();
+  const resolvedDir = resolve(dir);
+  const resolvedDirLower = resolvedDir.toLowerCase();
   for (const blocked of BLOCKED_DIRECTORIES) {
-    if (resolvedDir === blocked || resolvedDir.startsWith(blocked + '/')) {
+    if (resolvedDirLower === blocked || resolvedDirLower.startsWith(blocked + '/')) {
       return { 
         success: false, 
         error: `🚫 BLOCKED: Cannot list directory ${blocked} for security reasons` 
@@ -641,7 +705,7 @@ export async function executeListDirectory(
   }
   
   // Also block home .ssh
-  if (resolvedDir.includes('/.ssh')) {
+  if (resolvedDirLower.includes('/.ssh')) {
     return { 
       success: false, 
       error: '🚫 BLOCKED: Cannot list .ssh directory' 
@@ -649,8 +713,21 @@ export async function executeListDirectory(
   }
   
   try {
-    const output = execSync(`ls -la "${dir}"`, { encoding: 'utf-8', cwd });
-    return { success: true, output };
+    const entries = readdirSync(resolvedDir);
+    const listing = entries
+      .slice(0, 500)
+      .sort((a, b) => a.localeCompare(b))
+      .map(name => {
+        const entryPath = join(resolvedDir, name);
+        const stats = statSync(entryPath);
+        return {
+          name,
+          type: stats.isDirectory() ? 'dir' : stats.isFile() ? 'file' : stats.isSymbolicLink() ? 'symlink' : 'other',
+          size: stats.size,
+          mtime: stats.mtime.toISOString(),
+        };
+      });
+    return { success: true, output: JSON.stringify({ path: resolvedDir, entries: listing }, null, 2) };
   } catch (e: any) {
     return { success: false, error: e.message };
   }

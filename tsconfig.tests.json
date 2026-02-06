@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src/tests/**/*", "src/tools/**/*", "src/config.ts"],
+  "exclude": ["node_modules", "dist"]
+}
+

@@ -33,7 +33,4 @@ RUN chown -R agent:agent /app
 
 ENV AGENT_CWD=/workspace
 
-# Switch to non-root user
-USER agent
-
 CMD ["npx", "tsx", "src/index.ts"]

@@ -46,6 +46,30 @@ function readSecret(name: string, envKey: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Drop privileges after reading secrets (defense-in-depth).
+ * This allows mounting Docker secrets as root-only while running the agent as an unprivileged user.
+ */
+function dropPrivileges() {
+  const runAs = process.env.RUN_AS_USER || 'agent';
+
+  try {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      // Order matters: setgid before setuid.
+      if (typeof process.setgid === 'function') {
+        process.setgid(runAs);
+      }
+      if (typeof process.setuid === 'function') {
+        process.setuid(runAs);
+      }
+      console.log(`[security] Dropped privileges to '${runAs}' (uid=${process.getuid?.()})`);
+    }
+  } catch (e: any) {
+    console.error(`[security] Failed to drop privileges to '${runAs}': ${e?.message || e}`);
+    process.exit(1);
+  }
+}
+
 // Read secrets
 const telegramToken = readSecret('telegram_token', 'TELEGRAM_TOKEN');
 
@@ -87,6 +111,9 @@ const config = {
 };
 
 const mode = process.argv[2] || 'bot';
+
+// Drop root privileges before any tool execution / file access in runtime.
+dropPrivileges();
 
 // Initialize database
 const dbPath = join(config.cwd, 'october.db');

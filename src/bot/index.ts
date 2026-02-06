@@ -5,7 +5,7 @@
 
 import { Telegraf, Context } from 'telegraf';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import OpenAI from 'openai';
 import { ReActAgent } from '../agent/react.js';
 import { 
@@ -610,10 +610,10 @@ export function createBot(config: BotConfig) {
     });
   });
   
-  // Handle file uploads (documents)
-  bot.on('document', async (ctx) => {
-    const userId = ctx.from?.id;
-    if (!userId || !isAllowed(userId)) return;
+	  // Handle file uploads (documents)
+	  bot.on('document', async (ctx) => {
+	    const userId = ctx.from?.id;
+	    if (!userId || !isAllowed(userId)) return;
 
     const doc = ctx.message.document;
     const chatId = ctx.chat.id;
@@ -622,18 +622,17 @@ export function createBot(config: BotConfig) {
     try {
       // Get file from Telegram
       const fileLink = await ctx.telegram.getFileLink(doc.file_id);
-      const response = await fetch(fileLink.href);
-      const buffer = Buffer.from(await response.arrayBuffer());
+	      const response = await fetch(fileLink.href);
+	      const buffer = Buffer.from(await response.arrayBuffer());
 
-      // Save to user's workspace
-      const userWorkspace = join(config.cwd, 'users', String(userId), 'files');
-      if (!existsSync(userWorkspace)) {
-        mkdirSync(userWorkspace, { recursive: true });
-      }
+	      // Save to user's workspace
+	      const userWorkspace = join(config.cwd, String(userId), 'files');
+	      if (!existsSync(userWorkspace)) mkdirSync(userWorkspace, { recursive: true });
 
-      const filename = doc.file_name || `file_${Date.now()}`;
-      const filepath = join(userWorkspace, filename);
-      writeFileSync(filepath, buffer);
+	      const rawFilename = doc.file_name || `file_${Date.now()}`;
+	      const filename = basename(rawFilename).replace(/[\\/]/g, '_');
+	      const filepath = join(userWorkspace, filename);
+	      writeFileSync(filepath, buffer);
 
       // Save to database
       const fileRecord = db.files.addFile({
@@ -649,16 +648,18 @@ export function createBot(config: BotConfig) {
       console.log(`[file] Saved ${filename} (${doc.file_size} bytes) for user ${userId}`);
 
       // React to confirm receipt
-      await ctx.telegram.setMessageReaction(chatId, ctx.message.message_id, [{ type: 'emoji', emoji: '👀' as any }]);
+	      await ctx.telegram.setMessageReaction(chatId, ctx.message.message_id, [{ type: 'emoji', emoji: '👀' as any }]);
 
-      // If there's a caption, process it as a message with file context
-      if (caption) {
-        const fileContext = `[Пользователь прислал файл: ${filename} (${doc.mime_type}, ${doc.file_size} байт). Файл сохранён: ${filepath}]\n\n${caption}`;
-        ctx.message.text = fileContext;
-        // Let the text handler process it
-      } else {
-        await ctx.reply(`📎 Файл сохранён: ${filename}\n\nМогу что-то с ним сделать? Напиши, что нужно.`);
-      }
+	      // If there's a caption, process it as a message with file context
+	      if (caption) {
+	        await ctx.reply(
+	          `📎 Файл сохранён: ${filename}\n\n` +
+	          `Подпись: ${caption.slice(0, 500)}\n\n` +
+	          `Напиши отдельным сообщением, что нужно сделать с файлом (я могу читать его по пути: ${filepath}).`
+	        );
+	      } else {
+	        await ctx.reply(`📎 Файл сохранён: ${filename}\n\nМогу что-то с ним сделать? Напиши, что нужно.`);
+	      }
     } catch (e: any) {
       console.error('[file] Error:', e.message);
       await ctx.reply(`❌ Ошибка загрузки файла: ${e.message}`);
@@ -666,7 +667,7 @@ export function createBot(config: BotConfig) {
   });
 
   // Handle photo uploads with vision
-  bot.on('photo', async (ctx) => {
+	  bot.on('photo', async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId || !isAllowed(userId)) return;
 
@@ -693,17 +694,15 @@ export function createBot(config: BotConfig) {
         // Get file from Telegram
         const fileLink = await ctx.telegram.getFileLink(photo.file_id);
         const response = await fetch(fileLink.href);
-        const buffer = Buffer.from(await response.arrayBuffer());
+	        const buffer = Buffer.from(await response.arrayBuffer());
 
-        // Save to user's workspace
-        const userWorkspace = join(config.cwd, 'users', String(userId), 'files');
-        if (!existsSync(userWorkspace)) {
-          mkdirSync(userWorkspace, { recursive: true });
-        }
+	        // Save to user's workspace
+	        const userWorkspace = join(config.cwd, String(userId), 'files');
+	        if (!existsSync(userWorkspace)) mkdirSync(userWorkspace, { recursive: true });
 
-        const filename = `photo_${Date.now()}.jpg`;
-        const filepath = join(userWorkspace, filename);
-        writeFileSync(filepath, buffer);
+	        const filename = `photo_${Date.now()}.jpg`;
+	        const filepath = join(userWorkspace, filename);
+	        writeFileSync(filepath, buffer);
 
         // Save to database
         db.files.addFile({

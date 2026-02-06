@@ -40,16 +40,13 @@ services:
       - MCP_PORT=3100
       - MCP_URL=http://localhost:3100
       - WORKSPACE=/workspace
-      - EXPOSED_PORTS=4000-4999
       - MAX_CONCURRENT_USERS=10
       - AGENT_CWD=/workspace
     secrets:
       - source: telegram_token
-        mode: 0444
+        mode: 0400
     volumes:
       - ./workspace:/workspace
-    ports:
-      - "4000-4099:4000-4099"
     networks:
       - agent-net
     
