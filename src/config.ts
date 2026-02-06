@@ -3,6 +3,8 @@
  * All timing, limits and behavioral settings in one place
  */
 
+import { BOT_PROFILE } from './profile.js';
+
 export const CONFIG = {
   // ============== RATE LIMITING ==============
   rateLimit: {
@@ -39,7 +41,8 @@ export const CONFIG = {
     thinkDelayMin: 500,           // ms - min delay before responding
     thinkDelayMax: 2000,          // ms - max delay before responding
     typingInterval: 5000,         // ms - send typing action interval
-    trollDelay: 2000,             // ms - delay before troll message
+    trollDelay: 2000,             // ms - delay before troll message (lab only)
+    trollEnabled: BOT_PROFILE === 'lab',
   },
 
   // ============== STATUS UPDATES ==============
@@ -51,7 +54,7 @@ export const CONFIG = {
   // ============== REACTIONS ==============
   reactions: {
     minInterval: 5000,            // ms between reactions
-    randomChance: 0.15,           // 15% chance to react to messages
+    randomChance: BOT_PROFILE === 'lab' ? 0.15 : 0.0, // disable in corporate mode
     minTextLength: 10,            // min chars to consider reacting
     llmMaxTokens: 10,             // max tokens for reaction LLM
     // Weights for random category selection
@@ -64,13 +67,13 @@ export const CONFIG = {
 
   // ============== RANDOM TRIGGERS ==============
   triggers: {
-    randomReplyChance: 0.10,      // 10% random reply in groups
+    randomReplyChance: BOT_PROFILE === 'lab' ? 0.10 : 0.0, // disable in corporate mode
     minTextForRandom: 15,         // min chars for random trigger
   },
 
   // ============== AUTONOMOUS THOUGHTS ==============
   thoughts: {
-    enabled: true,
+    enabled: BOT_PROFILE === 'lab',
     minIntervalMin: 10,           // min minutes between thoughts
     maxIntervalMin: 30,           // max minutes between thoughts
     startDelayMin: 5,             // minutes before first thought

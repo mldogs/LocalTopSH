@@ -4,6 +4,7 @@
 
 import type { ToolTracker } from './types.js';
 import { CONFIG } from '../config.js';
+import { BOT_PROFILE } from '../profile.js';
 
 // Tool name → emoji
 export function toolEmoji(name: string): string {
@@ -111,9 +112,27 @@ export const TOOL_COMMENTS: Record<string, string[]> = {
   ],
 };
 
+const CORPORATE_TOOL_COMMENTS: Record<string, string[]> = {
+  'run_command': ['выполняю...'],
+  'read_file': ['читаю файл...'],
+  'write_file': ['записываю файл...'],
+  'edit_file': ['обновляю файл...'],
+  'search_files': ['ищу файлы...'],
+  'search_text': ['ищу по тексту...'],
+  'list_directory': ['смотрю директорию...'],
+  'search_web': ['ищу в интернете...'],
+  'fetch_page': ['загружаю страницу...'],
+  'ask_user': ['уточняю...'],
+  'memory': ['обновляю заметки...'],
+  'manage_tasks': ['обновляю задачи...'],
+  'error': ['не получилось'],
+  'success': ['готово'],
+};
+
 export function getToolComment(toolName: string, isError = false): string {
+  const commentsMap = BOT_PROFILE === 'lab' ? TOOL_COMMENTS : CORPORATE_TOOL_COMMENTS;
   const key = isError ? 'error' : toolName;
-  const comments = TOOL_COMMENTS[key] || TOOL_COMMENTS['success'];
+  const comments = commentsMap[key] || commentsMap['success'];
   return comments[Math.floor(Math.random() * comments.length)];
 }
 

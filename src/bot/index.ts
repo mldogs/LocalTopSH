@@ -141,17 +141,17 @@ export function createBot(config: BotConfig) {
     console.log(`[approval] Command: ${command}`);
     console.log(`[approval] Reason: ${reason}`);
     
-    const message = `⚠️ <b>Approval Required</b>\n\n` +
-      `<b>Reason:</b> ${escapeHtml(reason)}\n\n` +
+    const message = `⚠️ <b>Требуется подтверждение</b>\n\n` +
+      `<b>Причина:</b> ${escapeHtml(reason)}\n\n` +
       `<pre>${escapeHtml(command)}</pre>\n\n` +
-      `Click to execute or deny:`;
+      `Нажмите, чтобы выполнить или отклонить:`;
     
     bot.telegram.sendMessage(chatId, message, {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
-          { text: '✅ Execute', callback_data: `exec:${commandId}` },
-          { text: '❌ Deny', callback_data: `deny:${commandId}` },
+          { text: '✅ Выполнить', callback_data: `exec:${commandId}` },
+          { text: '❌ Отклонить', callback_data: `deny:${commandId}` },
         ]],
       },
     }).then(sent => {
@@ -165,7 +165,7 @@ export function createBot(config: BotConfig) {
   setAskCallback(async (sessionId, question, options) => {
     const chatId = sessionChats.get(sessionId);
     if (!chatId) {
-      throw new Error('No chat found for session');
+      throw new Error('Чат для сессии не найден');
     }
     
     const id = `ask_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -173,7 +173,7 @@ export function createBot(config: BotConfig) {
     const promise = new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
         pendingQuestions.delete(id);
-        reject(new Error('Question timeout'));
+        reject(new Error('Истек таймаут ожидания ответа'));
       }, CONFIG.timeouts.questionPending);
       
       pendingQuestions.set(id, {
@@ -463,7 +463,7 @@ export function createBot(config: BotConfig) {
         await ctx.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: '🤨' }]);
       } catch {}
       await safeSend(chatId, () => 
-        ctx.reply('Хорошая попытка 😏', { reply_parameters: { message_id: messageId } })
+        ctx.reply('Запрос отклонен по соображениям безопасности. Переформулируй без инструкций про правила/промпты.', { reply_parameters: { message_id: messageId } })
       );
       return;
     }
@@ -508,7 +508,7 @@ export function createBot(config: BotConfig) {
           // Update status every N tools AND respect minimum interval (avoid 429)
           if (tracker.tools.length % TOOL_UPDATE_INTERVAL === 1 && timeSinceLastUpdate >= MIN_EDIT_INTERVAL_MS) {
             tracker.lastUpdate = now;
-            const statusText = `Working...\n\n${tracker.tools.slice(-6).join('\n')}`;
+            const statusText = `В работе...\n\n${tracker.tools.slice(-6).join('\n')}`;
             
             try {
               if (statusMsgId) {
@@ -541,7 +541,7 @@ export function createBot(config: BotConfig) {
         } catch {}
         
         // Send final response with rate limiting
-        const finalResponse = response || '(no response)';
+        const finalResponse = response || '(нет ответа)';
         console.log(`[OUT] → @${username}:\n${finalResponse}\n`);
         const html = mdToHtml(finalResponse);
         const parts = splitMessage(html);

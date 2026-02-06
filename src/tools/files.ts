@@ -143,19 +143,19 @@ function ensureWorkspaceAccess(pathToCheck: string, workspaceRoot: string): { al
   const resolvedWorkspace = resolve(workspaceRoot);
 
   if (resolvedPath === '/workspace' || resolvedPath === '/workspace/') {
-    return { allowed: false, reason: 'Cannot access /workspace root' };
+    return { allowed: false, reason: 'Нельзя обращаться к корню /workspace' };
   }
 
   if (resolvedPath.startsWith('/workspace/_shared')) {
-    return { allowed: false, reason: 'Cannot access shared workspace data' };
+    return { allowed: false, reason: 'Нельзя обращаться к общим данным workspace' };
   }
 
   if (resolvedPath.startsWith('/workspace/') && !isPathInsideWorkspace(resolvedPath, resolvedWorkspace)) {
-    return { allowed: false, reason: 'Cannot access other user workspace' };
+    return { allowed: false, reason: 'Нельзя обращаться к workspace другого пользователя' };
   }
 
   if (!isPathInsideWorkspace(resolvedPath, resolvedWorkspace)) {
-    return { allowed: false, reason: 'Cannot access files outside your workspace' };
+    return { allowed: false, reason: 'Нельзя обращаться к файлам вне вашего workspace' };
   }
 
   return { allowed: true };
@@ -180,7 +180,7 @@ function isSymlinkEscape(filePath: string, workspacePath: string): { escape: boo
       console.log(`[SECURITY] Symlink escape detected: ${filePath} -> ${realPath}`);
       return { 
         escape: true, 
-        reason: `Symlink points outside workspace (${realPath})` 
+        reason: `Ссылка (symlink) указывает вне workspace (${realPath})` 
       };
     }
     
@@ -192,7 +192,7 @@ function isSymlinkEscape(filePath: string, workspacePath: string): { escape: boo
         if (realPath.startsWith(sensitive)) {
           return { 
             escape: true, 
-            reason: `Symlink points to sensitive location (${sensitive})` 
+            reason: `Ссылка (symlink) указывает на чувствительный путь (${sensitive})` 
           };
         }
       }
@@ -210,13 +210,13 @@ export const readDefinition = {
   type: "function" as const,
   function: {
     name: "read_file",
-    description: "Read file contents. Always read before editing a file.",
+    description: "Прочитать содержимое файла. Обычно сначала читай файл перед правками.",
     parameters: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path to the file" },
-        offset: { type: "number", description: "Starting line number (1-based)" },
-        limit: { type: "number", description: "Number of lines to read" },
+        path: { type: "string", description: "Путь к файлу" },
+        offset: { type: "number", description: "Номер строки начала (1-based)" },
+        limit: { type: "number", description: "Сколько строк прочитать" },
       },
       required: ["path"],
     },
@@ -243,7 +243,7 @@ export async function executeRead(
     console.log(`[SECURITY] Blocked read of sensitive file: ${resolvedPath}`);
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot read sensitive file (${basename(resolvedPath)}). This file may contain secrets.` 
+      error: `🚫 BLOCKED: Нельзя читать чувствительный файл (${basename(resolvedPath)}). Он может содержать секреты.` 
     };
   }
   
@@ -258,7 +258,7 @@ export async function executeRead(
   }
   
   if (!existsSync(resolvedPath)) {
-    return { success: false, error: `File not found: ${args.path}` };
+    return { success: false, error: `Файл не найден: ${args.path}` };
   }
   
   try {
@@ -272,10 +272,10 @@ export async function executeRead(
     }
     
     if (content.length > 100000) {
-      content = content.slice(0, 100000) + '\n...(truncated)';
+      content = content.slice(0, 100000) + '\n...(сокращено)';
     }
     
-    return { success: true, output: content || "(empty file)" };
+    return { success: true, output: content || "(пустой файл)" };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -286,12 +286,12 @@ export const writeDefinition = {
   type: "function" as const,
   function: {
     name: "write_file",
-    description: "Write content to a file. Creates the file if it doesn't exist.",
+    description: "Записать содержимое в файл. Создает файл, если его нет.",
     parameters: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path to the file" },
-        content: { type: "string", description: "Content to write" },
+        path: { type: "string", description: "Путь к файлу" },
+        content: { type: "string", description: "Содержимое для записи" },
       },
       required: ["path", "content"],
     },
@@ -317,7 +317,7 @@ export async function executeWrite(
   if (isSensitiveFile(resolvedPath)) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot write to sensitive file (${basename(resolvedPath)})` 
+      error: `🚫 BLOCKED: Нельзя писать в чувствительный файл (${basename(resolvedPath)})` 
     };
   }
   
@@ -336,7 +336,7 @@ export async function executeWrite(
     console.log(`[SECURITY] Blocked dangerous file content: ${contentCheck.reason}`);
     return { 
       success: false, 
-      error: `🚫 BLOCKED: File contains dangerous code (${contentCheck.reason}). Cannot write files that may leak secrets.` 
+      error: `🚫 BLOCKED: Файл содержит опасный код (${contentCheck.reason}). Нельзя писать файлы, которые могут утечь секретами.` 
     };
   }
   
@@ -346,7 +346,7 @@ export async function executeWrite(
       mkdirSync(dir, { recursive: true });
     }
     writeFileSync(resolvedPath, args.content, 'utf-8');
-    return { success: true, output: `Written ${args.content.length} bytes to ${args.path}` };
+    return { success: true, output: `Записано ${args.content.length} байт в ${args.path}` };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -357,13 +357,13 @@ export const editDefinition = {
   type: "function" as const,
   function: {
     name: "edit_file",
-    description: "Edit a file by replacing text. The old_text must match exactly.",
+    description: "Отредактировать файл заменой текста. old_text должен совпадать полностью.",
     parameters: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path to the file" },
-        old_text: { type: "string", description: "Exact text to find and replace" },
-        new_text: { type: "string", description: "New text to insert" },
+        path: { type: "string", description: "Путь к файлу" },
+        old_text: { type: "string", description: "Точный текст для поиска и замены" },
+        new_text: { type: "string", description: "Новый текст" },
       },
       required: ["path", "old_text", "new_text"],
     },
@@ -389,7 +389,7 @@ export async function executeEdit(
   if (isSensitiveFile(resolvedPath)) {
     return { 
       success: false, 
-      error: `🚫 BLOCKED: Cannot edit sensitive file (${basename(resolvedPath)})` 
+      error: `🚫 BLOCKED: Нельзя редактировать чувствительный файл (${basename(resolvedPath)})` 
     };
   }
   
@@ -403,7 +403,7 @@ export async function executeEdit(
   }
   
   if (!existsSync(resolvedPath)) {
-    return { success: false, error: `File not found: ${args.path}` };
+    return { success: false, error: `Файл не найден: ${args.path}` };
   }
   
   // Security: Check new content for dangerous code
@@ -421,12 +421,12 @@ export async function executeEdit(
     
     if (!content.includes(args.old_text)) {
       const preview = content.slice(0, 2000);
-      return { success: false, error: `old_text not found.\n\nFile preview:\n${preview}` };
+      return { success: false, error: `old_text не найден.\n\nПревью файла:\n${preview}` };
     }
     
     const newContent = content.replace(args.old_text, args.new_text);
     writeFileSync(resolvedPath, newContent, 'utf-8');
-    return { success: true, output: `Edited ${args.path}` };
+    return { success: true, output: `Отредактировано: ${args.path}` };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -437,11 +437,11 @@ export const deleteDefinition = {
   type: "function" as const,
   function: {
     name: "delete_file",
-    description: "Delete a file. Only works within workspace directory.",
+    description: "Удалить файл. Работает только внутри workspace.",
     parameters: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Path to the file to delete" },
+        path: { type: "string", description: "Путь к файлу для удаления" },
       },
       required: ["path"],
     },
@@ -464,12 +464,12 @@ export async function executeDelete(
   }
 
   if (!existsSync(resolvedPath)) {
-    return { success: false, error: `File not found: ${args.path}` };
+    return { success: false, error: `Файл не найден: ${args.path}` };
   }
   
   try {
     unlinkSync(resolvedPath);
-    return { success: true, output: `Deleted: ${args.path}` };
+    return { success: true, output: `Удалено: ${args.path}` };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -480,11 +480,11 @@ export const searchFilesDefinition = {
   type: "function" as const,
   function: {
     name: "search_files",
-    description: "Search for files by glob pattern. Use to discover project structure.",
+    description: "Найти файлы по glob-паттерну. Удобно, чтобы понять структуру проекта.",
     parameters: {
       type: "object",
       properties: {
-        pattern: { type: "string", description: "Glob pattern (e.g. **/*.ts, src/**/*.js)" },
+        pattern: { type: "string", description: "Glob-паттерн (например, **/*.ts, src/**/*.js)" },
       },
       required: ["pattern"],
     },
@@ -502,7 +502,7 @@ export async function executeSearchFiles(
       onlyFiles: true,
       ignore: ['**/node_modules/**', '**/.git/**'],
     });
-    return { success: true, output: files.slice(0, 200).join('\n') || "(no matches)" };
+    return { success: true, output: files.slice(0, 200).join('\n') || "(нет совпадений)" };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -513,16 +513,16 @@ export const searchTextDefinition = {
   type: "function" as const,
   function: {
     name: "search_text",
-    description: "Search for text/code in files using grep/ripgrep. Find definitions, usages, patterns.",
+    description: "Поиск текста/кода в файлах (grep/ripgrep). Находит определения, использования и паттерны.",
     parameters: {
       type: "object",
       properties: {
-        pattern: { type: "string", description: "Text or regex pattern to search" },
-        path: { type: "string", description: "Directory or file to search in (default: current)" },
-        context_before: { type: "number", description: "Lines to show before match (like grep -B)" },
-        context_after: { type: "number", description: "Lines to show after match (like grep -A)" },
-        files_only: { type: "boolean", description: "Return only file paths, not content" },
-        ignore_case: { type: "boolean", description: "Case insensitive search" },
+        pattern: { type: "string", description: "Текст или regex-паттерн для поиска" },
+        path: { type: "string", description: "Файл/папка для поиска (по умолчанию: текущая)" },
+        context_before: { type: "number", description: "Строк до совпадения (как grep -B)" },
+        context_after: { type: "number", description: "Строк после совпадения (как grep -A)" },
+        files_only: { type: "boolean", description: "Вернуть только пути файлов, без содержимого" },
+        ignore_case: { type: "boolean", description: "Поиск без учета регистра" },
       },
       required: ["pattern"],
     },
@@ -545,7 +545,7 @@ export async function executeSearchText(
   if (secretPatterns.test(args.pattern)) {
     return { 
       success: false, 
-      error: '🚫 BLOCKED: Cannot search for secrets/credentials patterns' 
+      error: '🚫 BLOCKED: Нельзя искать по паттернам секретов/учетных данных' 
     };
   }
   
@@ -608,12 +608,12 @@ export async function executeSearchText(
       const output = (rgResult.stdout || '').trim();
       if (rgResult.status === 0) {
         const lines = output.split('\n').slice(0, 200).join('\n');
-        return { success: true, output: lines || '(no matches)' };
+        return { success: true, output: lines || '(нет совпадений)' };
       }
       if (rgResult.status === 1) {
-        return { success: true, output: '(no matches)' };
+        return { success: true, output: '(нет совпадений)' };
       }
-      return { success: false, error: rgResult.stderr?.trim() || 'Search failed' };
+      return { success: false, error: rgResult.stderr?.trim() || 'Поиск не удался' };
     }
 
     const grepArgs: string[] = ['-rn'];
@@ -634,14 +634,14 @@ export async function executeSearchText(
 
     if (grepResult.status === 0) {
       const lines = (grepResult.stdout || '').trim().split('\n').slice(0, 200).join('\n');
-      return { success: true, output: lines || '(no matches)' };
+      return { success: true, output: lines || '(нет совпадений)' };
     }
 
     if (grepResult.status === 1) {
-      return { success: true, output: '(no matches)' };
+      return { success: true, output: '(нет совпадений)' };
     }
 
-    return { success: false, error: grepResult.stderr?.trim() || 'Search failed' };
+    return { success: false, error: grepResult.stderr?.trim() || 'Поиск не удался' };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -652,11 +652,11 @@ export const listDirectoryDefinition = {
   type: "function" as const,
   function: {
     name: "list_directory",
-    description: "List contents of a directory.",
+    description: "Показать содержимое директории.",
     parameters: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Directory path (default: current)" },
+        path: { type: "string", description: "Путь к директории (по умолчанию: текущая)" },
       },
       required: [],
     },
@@ -699,7 +699,7 @@ export async function executeListDirectory(
     if (resolvedDirLower === blocked || resolvedDirLower.startsWith(blocked + '/')) {
       return { 
         success: false, 
-        error: `🚫 BLOCKED: Cannot list directory ${blocked} for security reasons` 
+        error: `🚫 BLOCKED: Нельзя листать директорию ${blocked} по соображениям безопасности` 
       };
     }
   }
@@ -708,7 +708,7 @@ export async function executeListDirectory(
   if (resolvedDirLower.includes('/.ssh')) {
     return { 
       success: false, 
-      error: '🚫 BLOCKED: Cannot list .ssh directory' 
+      error: '🚫 BLOCKED: Нельзя листать директорию .ssh' 
     };
   }
   

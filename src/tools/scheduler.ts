@@ -10,7 +10,7 @@ interface ScheduledTask {
   id: string;
   userId: number;
   chatId: number;
-  type: 'message' | 'command';
+  type: 'message' | 'command'; // 'command' kept only for backward compatibility (will be dropped)
   content: string;
   executeAt: number;
   createdAt: number;
@@ -76,14 +76,9 @@ function saveTasks() {
 
 // Callbacks (set from bot)
 let sendMessageCallback: ((chatId: number, text: string) => Promise<void>) | null = null;
-let executeCommandCallback: ((userId: number, command: string) => Promise<string>) | null = null;
 
 export function setSendMessageCallback(cb: (chatId: number, text: string) => Promise<void>) {
   sendMessageCallback = cb;
-}
-
-export function setExecuteCommandCallback(cb: (userId: number, command: string) => Promise<string>) {
-  executeCommandCallback = cb;
 }
 
 // Format time remaining
@@ -116,10 +111,9 @@ export function startScheduler() {
             const repeatInfo = task.recurring ? ' 🔁' : '';
             await sendMessageCallback(task.chatId, `⏰ Напоминание${repeatInfo}: ${task.content}`);
             console.log(`[scheduler] Sent reminder to ${task.userId}: ${task.content.slice(0, 30)}`);
-          } else if (task.type === 'command' && executeCommandCallback) {
-            const result = await executeCommandCallback(task.userId, task.content);
-            await sendMessageCallback?.(task.chatId, `⏰ Запланированная команда:\n\`${task.content}\`\n\nРезультат:\n${result.slice(0, 500)}`);
-            console.log(`[scheduler] Executed command for ${task.userId}: ${task.content.slice(0, 30)}`);
+          } else if (task.type === 'command') {
+            // Previously supported; kept for backward compatibility. Never execute commands.
+            console.log(`[scheduler] Dropping legacy command task ${id} for ${task.userId}`);
           }
         } catch (e: any) {
           console.log(`[scheduler] Task ${id} failed: ${e.message}`);
@@ -172,44 +166,44 @@ export const definition = {
   type: "function" as const,
   function: {
     name: "schedule_task",
-    description: `Schedule reminders or delayed commands. Supports one-time and RECURRING tasks.
-- One-time: "remind me in 2 hours to call mom"
-- Recurring: "remind me every 30 min to drink water" (use repeat_every_minutes)
-- Max ${MAX_TASKS_PER_USER} tasks per user
-- Delay: 1 min to 30 days
-- Repeat interval: min ${MIN_INTERVAL_MINUTES} minutes`,
+    description: `Планировщик напоминаний (сообщения). Поддерживает разовые и повторяющиеся задачи.
+- Разово: "напомни через 2 часа позвонить клиенту"
+- Повтор: "напоминай каждые 30 минут пить воду" (используй repeat_every_minutes)
+- Лимит: до ${MAX_TASKS_PER_USER} задач на пользователя
+- Задержка: 1 минута ... 30 дней
+- Интервал повтора: минимум ${MIN_INTERVAL_MINUTES} минут`,
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
           enum: ["add", "list", "cancel"],
-          description: "add = create task, list = show tasks, cancel = cancel by id"
+          description: "add = создать, list = показать, cancel = отменить по id"
         },
         type: {
           type: "string",
-          enum: ["message", "command"],
-          description: "message = send reminder, command = run shell command"
+          enum: ["message"],
+          description: "message = отправить напоминание"
         },
         content: {
           type: "string",
-          description: "Reminder text or shell command"
+          description: "Текст напоминания"
         },
         delay_minutes: {
           type: "number",
-          description: "Delay before first execution (1 to 43200 = 30 days)"
+          description: "Задержка до первого срабатывания (1..43200 минут = до 30 дней)"
         },
         repeat_every_minutes: {
           type: "number",
-          description: "OPTIONAL: Repeat every N minutes (min 5). Makes task recurring."
+          description: "ОПЦИОНАЛЬНО: повторять каждые N минут (мин. 5). Делает задачу повторяющейся."
         },
         repeat_for_hours: {
           type: "number",
-          description: "OPTIONAL: Stop repeating after N hours (default: 24h, max: 720h = 30 days)"
+          description: "ОПЦИОНАЛЬНО: прекратить повтор через N часов (по умолчанию 24ч, максимум 720ч = 30 дней)"
         },
         task_id: {
           type: "string",
-          description: "Task ID (for cancel action)"
+          description: "ID задачи (для cancel)"
         },
       },
       required: ["action"],
@@ -234,7 +228,11 @@ export async function execute(
   switch (args.action) {
     case 'add': {
       if (!args.type || !args.content || args.delay_minutes === undefined) {
-        return { success: false, error: 'Need type, content, and delay_minutes' };
+        return { success: false, error: 'Нужны поля: type, content, delay_minutes' };
+      }
+
+      if (args.type !== 'message') {
+        return { success: false, error: 'Поддерживаются только напоминания типа "message"' };
       }
 
       // Validate delay
@@ -243,7 +241,10 @@ export async function execute(
       // Check user task limit
       const userTaskSet = userTasks.get(userId) || new Set();
       if (userTaskSet.size >= MAX_TASKS_PER_USER) {
-        return { success: false, error: `Max ${MAX_TASKS_PER_USER} tasks. Cancel some first (/list to see).` };
+        return {
+          success: false,
+          error: `Лимит: максимум ${MAX_TASKS_PER_USER} задач. Отмени лишнее (schedule_task(action="list") чтобы посмотреть).`,
+        };
       }
 
       // Create task
@@ -254,7 +255,7 @@ export async function execute(
         id,
         userId,
         chatId,
-        type: args.type as 'message' | 'command',
+        type: 'message',
         content: args.content,
         executeAt: now + delay * 60 * 1000,
         createdAt: now,
@@ -317,16 +318,16 @@ export async function execute(
 
     case 'cancel': {
       if (!args.task_id) {
-        return { success: false, error: 'Need task_id to cancel' };
+        return { success: false, error: 'Нужно указать task_id для отмены' };
       }
 
       const task = scheduledTasks.get(args.task_id);
       if (!task) {
-        return { success: false, error: 'Task not found' };
+        return { success: false, error: 'Задача не найдена' };
       }
 
       if (task.userId !== userId) {
-        return { success: false, error: 'Cannot cancel other user\'s task' };
+        return { success: false, error: 'Нельзя отменять задачу другого пользователя' };
       }
 
       scheduledTasks.delete(args.task_id);
@@ -338,6 +339,6 @@ export async function execute(
     }
 
     default:
-      return { success: false, error: `Unknown action: ${args.action}` };
+      return { success: false, error: `Неизвестное действие: ${args.action}` };
   }
 }

@@ -26,17 +26,17 @@ export const definition = {
   type: "function" as const,
   function: {
     name: "send_file",
-    description: "Send a file from your workspace to the chat. Use this to share files you created or found with the user. Max file size: 50MB.",
+    description: "Отправить файл из вашего workspace в чат. Используй, чтобы поделиться файлами, которые ты создал(а) или нашел(а). Макс. размер: 50MB.",
     parameters: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Path to the file (relative to workspace or absolute)"
+          description: "Путь к файлу (относительно workspace или абсолютный)"
         },
         caption: {
           type: "string",
-          description: "Optional caption/description for the file"
+          description: "Необязательная подпись/описание к файлу"
         },
       },
       required: ["path"],
@@ -74,7 +74,7 @@ export async function execute(
   if (!sendFileCallback) {
     return {
       success: false,
-      error: 'Send file callback not configured',
+      error: 'Не настроен callback отправки файла',
     };
   }
   
@@ -89,7 +89,7 @@ export async function execute(
   if (!isPathInsideWorkspace(resolved, cwdResolved)) {
     return {
       success: false,
-      error: '🚫 BLOCKED: Can only send files from your workspace',
+      error: '🚫 BLOCKED: Можно отправлять только файлы из вашего workspace',
     };
   }
   
@@ -100,7 +100,7 @@ export async function execute(
       console.log(`[SECURITY] Blocked sending sensitive file: ${resolved}`);
       return {
         success: false,
-        error: '🚫 BLOCKED: Cannot send sensitive files (credentials, keys, etc)',
+        error: '🚫 BLOCKED: Нельзя отправлять чувствительные файлы (ключи, токены и т.п.)',
       };
     }
   }
@@ -109,7 +109,7 @@ export async function execute(
   if (!existsSync(resolved)) {
     return {
       success: false,
-      error: `File not found: ${args.path}`,
+      error: `Файл не найден: ${args.path}`,
     };
   }
   
@@ -118,14 +118,14 @@ export async function execute(
   if (stat.size > MAX_FILE_SIZE) {
     return {
       success: false,
-      error: `File too large (${Math.round(stat.size / 1024 / 1024)}MB). Max: 50MB`,
+      error: `Файл слишком большой (${Math.round(stat.size / 1024 / 1024)}MB). Максимум: 50MB`,
     };
   }
   
   if (stat.size === 0) {
     return {
       success: false,
-      error: 'File is empty',
+      error: 'Файл пустой',
     };
   }
   
@@ -133,19 +133,19 @@ export async function execute(
     await sendFileCallback(chatId, resolved, args.caption);
     return {
       success: true,
-      output: `Sent file: ${basename(resolved)} (${formatSize(stat.size)})`,
+      output: `Файл отправлен: ${basename(resolved)} (${formatSize(stat.size)})`,
     };
   } catch (e: any) {
     // Check if it's a permission error (group restrictions)
     if (e.message?.includes('not enough rights') || e.message?.includes('CHAT_SEND_MEDIA_FORBIDDEN')) {
       return {
         success: false,
-        error: `Cannot send files in this group (no permissions). Try: read the file and paste contents, or tell user to DM for files.`,
+        error: 'Нельзя отправлять файлы в этой группе (не хватает прав). Варианты: прочитать файл и вставить содержимое, или попросить написать в личку для отправки файла.',
       };
     }
     return {
       success: false,
-      error: `Failed to send file: ${e.message}`,
+      error: `Не удалось отправить файл: ${e.message}`,
     };
   }
 }

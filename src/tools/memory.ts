@@ -79,6 +79,7 @@ export function getGlobalLog(lines = 50): string {
  * Check if it's time for a troll message
  */
 export function shouldTroll(): boolean {
+  if (!CONFIG.bot.trollEnabled) return false;
   globalMessageCount++;
   return globalMessageCount % TROLL_INTERVAL === 0;
 }
@@ -159,18 +160,18 @@ export const definition = {
   type: "function" as const,
   function: {
     name: "memory",
-    description: "Long-term memory. Use to save important info (project context, decisions, todos) or read previous notes. Memory persists across sessions.",
+    description: "Долговременная память. Используй, чтобы сохранять важную информацию (контекст, решения, todo) и читать прошлые заметки. Память сохраняется между сессиями.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
           enum: ["read", "append", "clear"],
-          description: "read: get all memory, append: add new entry, clear: reset memory"
+          description: "read: прочитать, append: добавить запись, clear: очистить"
         },
         content: {
           type: "string",
-          description: "For append: text to add (will be timestamped automatically)"
+          description: "Для append: текст, который нужно добавить (метка времени ставится автоматически)"
         },
       },
       required: ["action"],
@@ -188,15 +189,15 @@ export function execute(
     switch (args.action) {
       case 'read': {
         if (!existsSync(memoryPath)) {
-          return { success: true, output: '(memory is empty)' };
+          return { success: true, output: '(память пустая)' };
         }
         const content = readFileSync(memoryPath, 'utf-8');
-        return { success: true, output: content || '(memory is empty)' };
+        return { success: true, output: content || '(память пустая)' };
       }
       
       case 'append': {
         if (!args.content) {
-          return { success: false, error: 'Content required for append' };
+          return { success: false, error: 'Нужно поле content для append' };
         }
         
         const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -206,21 +207,21 @@ export function execute(
         if (existsSync(memoryPath)) {
           existing = readFileSync(memoryPath, 'utf-8');
         } else {
-          existing = '# Agent Memory\n\nImportant context and notes from previous sessions.\n';
+          existing = '# Память ассистента\n\nВажный контекст и заметки из прошлых сессий.\n';
         }
         
         writeFileSync(memoryPath, existing + entry, 'utf-8');
-        return { success: true, output: `Added to memory (${args.content.length} chars)` };
+        return { success: true, output: `Добавлено в память (${args.content.length} символов)` };
       }
       
       case 'clear': {
-        const header = '# Agent Memory\n\nImportant context and notes from previous sessions.\n';
+        const header = '# Память ассистента\n\nВажный контекст и заметки из прошлых сессий.\n';
         writeFileSync(memoryPath, header, 'utf-8');
-        return { success: true, output: 'Memory cleared' };
+        return { success: true, output: 'Память очищена' };
       }
       
       default:
-        return { success: false, error: `Unknown action: ${args.action}` };
+        return { success: false, error: `Неизвестное действие: ${args.action}` };
     }
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -245,7 +246,7 @@ export function getMemoryForPrompt(cwd: string): string | null {
     
     // Limit to last N chars to not overflow context
     if (content.length > CONFIG.storage.maxMemoryChars) {
-      return '...(truncated)...\n' + content.slice(-CONFIG.storage.maxMemoryChars);
+      return '...(сокращено)...\n' + content.slice(-CONFIG.storage.maxMemoryChars);
     }
     return content;
   } catch {

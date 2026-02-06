@@ -87,11 +87,11 @@ export const searchWebDefinition = {
   type: "function" as const,
   function: {
     name: "search_web",
-    description: "Search the internet. USE IMMEDIATELY for: news, current events, external info, 'what is X?', prices, weather.",
+    description: "Поиск по интернету. Используй сразу, когда нужны новости/события, внешняя информация, 'что такое X?', цены, погода.",
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Search query" },
+        query: { type: "string", description: "Поисковый запрос" },
       },
       required: ["query"],
     },
@@ -171,7 +171,7 @@ async function readPageViaProxy(url: string): Promise<string> {
   const result = data.reader_result;
   
   if (!result?.content) {
-    throw new Error('No content returned');
+    throw new Error('Не удалось получить контент');
   }
   
   let output = '';
@@ -206,7 +206,7 @@ async function readPageZai(url: string, apiKey: string): Promise<string> {
   const result = data.reader_result;
   
   if (!result?.content) {
-    throw new Error('No content returned');
+    throw new Error('Не удалось получить контент');
   }
   
   let output = '';
@@ -222,11 +222,11 @@ export const fetchPageDefinition = {
   type: "function" as const,
   function: {
     name: "fetch_page",
-    description: "Fetch and parse content from a URL. Returns clean markdown text.",
+    description: "Загрузить и распарсить контент по URL. Возвращает очищенный текст (Markdown).",
     parameters: {
       type: "object",
       properties: {
-        url: { type: "string", description: "URL to fetch" },
+        url: { type: "string", description: "URL для загрузки" },
       },
       required: ["url"],
     },
@@ -265,12 +265,12 @@ const BLOCKED_URL_PATTERNS = [
 
 function isUrlSafe(url: string): { safe: boolean; reason?: string } {
   if (!url.match(/^https?:\/\//i)) {
-    return { safe: false, reason: 'Only http/https URLs allowed' };
+    return { safe: false, reason: 'Разрешены только URL с http/https' };
   }
   
   for (const pattern of BLOCKED_URL_PATTERNS) {
     if (pattern.test(url)) {
-      return { safe: false, reason: 'URL blocked for security (internal/metadata endpoint)' };
+      return { safe: false, reason: 'URL заблокирован по соображениям безопасности (внутренний/metadata endpoint)' };
     }
   }
   
@@ -306,7 +306,7 @@ async function fetchWithSafeRedirects(initialUrl: string): Promise<Response> {
     return response;
   }
 
-  throw new Error('Too many redirects');
+  throw new Error('Слишком много редиректов');
 }
 
 export async function executeFetchPage(
@@ -353,7 +353,7 @@ export async function executeFetchPage(
     return { success: true, output: text.slice(0, 50000) };
   } catch (e: any) {
     if (typeof e?.message === 'string' && e.message.startsWith('BLOCKED_REDIRECT:')) {
-      const reason = e.message.replace('BLOCKED_REDIRECT:', '') || 'Redirect to internal URL blocked';
+      const reason = e.message.replace('BLOCKED_REDIRECT:', '') || 'Редирект на внутренний URL заблокирован';
       return { success: false, error: `🚫 BLOCKED: ${reason}` };
     }
     return { success: false, error: e.message };

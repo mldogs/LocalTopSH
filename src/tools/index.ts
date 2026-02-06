@@ -29,19 +29,19 @@ import * as message from './message.js';
 import * as meme from './meme.js';
 import * as scheduler from './scheduler.js';
 import { CONFIG } from '../config.js';
+import { BOT_PROFILE } from '../profile.js';
 
 // Re-export callback setters
 export { setApprovalCallback } from './bash.js';
 export { setAskCallback } from './ask.js';
 export { setSendFileCallback } from './sendFile.js';
 export { setDeleteMessageCallback, setEditMessageCallback, recordBotMessage } from './message.js';
-export { setSendMessageCallback, setExecuteCommandCallback, startScheduler } from './scheduler.js';
+export { setSendMessageCallback, startScheduler } from './scheduler.js';
 export { getMemoryForPrompt, logGlobal, getGlobalLog, shouldTroll, getTrollMessage, saveChatMessage, getChatHistory } from './memory.js';
 export { getChatHistory as getChatHistoryForPrompt } from './memory.js';
 export { setProxyUrl } from './web.js';
 
-// Tool definitions for OpenAI
-export const definitions = [
+const LAB_DEFINITIONS = [
   bash.definition,
   files.readDefinition,
   files.writeDefinition,
@@ -61,8 +61,26 @@ export const definitions = [
   scheduler.definition,
 ];
 
+const OCTOBER_DEFINITIONS = [
+  files.readDefinition,
+  files.searchFilesDefinition,
+  files.searchTextDefinition,
+  files.listDirectoryDefinition,
+  web.searchWebDefinition,
+  web.fetchPageDefinition,
+  tasks.manageTasksDefinition,
+  ask.definition,
+  memory.definition,
+  sendFile.definition,
+  scheduler.definition,
+];
+
+// Tool definitions for OpenAI
+export const definitions = BOT_PROFILE === 'lab' ? LAB_DEFINITIONS : OCTOBER_DEFINITIONS;
+
 // Tool names
 export const toolNames = definitions.map(d => d.function.name);
+const allowedToolNames = new Set(toolNames);
 
 // Result type
 export interface ToolResult {
@@ -99,7 +117,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, toolName: 
   
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error(`Tool ${toolName} timed out after ${timeoutMs / 1000}s`));
+      reject(new Error(`Инструмент ${toolName} превысил лимит времени: ${timeoutMs / 1000}s`));
     }, timeoutMs);
   });
   
@@ -119,6 +137,11 @@ export async function execute(
   args: Record<string, any>,
   ctx: ToolContext
 ): Promise<ToolResult> {
+  if (!allowedToolNames.has(name)) {
+    console.log(`[tool] ${name} is disabled in BOT_PROFILE=${BOT_PROFILE}`);
+    return { success: false, error: `🚫 Инструмент отключен: ${name}` };
+  }
+
   const argsStr = formatArgs(args);
   console.log(`[tool] ${name}(${argsStr})`);
   
@@ -135,7 +158,7 @@ export async function execute(
     
     return result;
   } catch (e: any) {
-    const errorMsg = e.message || 'Unknown error';
+    const errorMsg = e.message || 'Неизвестная ошибка';
     console.log(`[tool] → TIMEOUT: ${errorMsg}`);
     return { success: false, error: `⏱️ ${errorMsg}` };
   }
@@ -219,7 +242,7 @@ async function executeInternal(
       break;
     
     default:
-      result = { success: false, error: `Unknown tool: ${name}` };
+      result = { success: false, error: `Неизвестный инструмент: ${name}` };
   }
   
   return result;

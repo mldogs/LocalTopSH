@@ -11,6 +11,7 @@ import { escapeHtml } from './formatters.js';
 import type { BotConfig } from './types.js';
 import { CONFIG } from '../config.js';
 import { isAdmin } from '../admin/index.js';
+import { BOT_PROFILE } from '../profile.js';
 
 // AFK state
 let afkUntil = 0;
@@ -42,13 +43,26 @@ export function getAfkUntil(): number {
 export function setupStartCommand(bot: Telegraf, botUsername: string) {
   bot.command('start', async (ctx) => {
     const chatType = ctx.message?.chat?.type;
-    const msg = `<b>🤖 Coding Agent</b>\n\n` +
-      `<b>Tools:</b>\n<code>${toolNames.join('\n')}</code>\n\n` +
-      `🛡️ <b>Security:</b> Dangerous commands require approval\n\n` +
-      (chatType !== 'private' ? `💬 In groups: @${botUsername} or reply\n\n` : '') +
-      `/clear - Reset session\n` +
-      `/status - Status\n` +
-      `/pending - Pending commands`;
+
+    const isLab = BOT_PROFILE === 'lab';
+    let msg = isLab
+      ? `<b>🤖 Coding Agent</b>\n\nУчебный агент с доступом к изолированному workspace.\n\n`
+      : `<b>Октябрина Силиконова</b>\n\nВнутренний ассистент October Group.\n\n`;
+
+    if (chatType !== 'private') {
+      msg += `В группах: упомяните @${botUsername} или ответьте на мое сообщение.\n\n`;
+    }
+
+    msg += `<b>Команды:</b>\n` +
+      `/clear - очистить диалог\n` +
+      `/status - статус`;
+
+    if (isLab) {
+      msg += `\n/pending - ожидают подтверждения\n\n` +
+        `<b>Инструменты:</b>\n<code>${toolNames.join('\n')}</code>\n\n` +
+        `🛡️ <b>Безопасность:</b> опасные команды требуют подтверждения`;
+    }
+
     await ctx.reply(msg, { parse_mode: 'HTML' });
   });
 }
@@ -60,7 +74,7 @@ export function setupClearCommand(bot: Telegraf, getAgent: (userId: number) => R
     if (userId) {
       const agent = getAgent(userId);
       agent.clear(String(userId));
-      await ctx.reply('🗑 Session cleared');
+      await ctx.reply('🗑 Диалог очищен');
     }
   });
 }
@@ -75,12 +89,12 @@ export function setupStatusCommand(bot: Telegraf, config: BotConfig, getAgent: (
     const info = agent.getInfo(String(userId));
     const pending = getSessionPendingCommands(String(userId));
     const userCwd = join(config.cwd, String(userId));
-    const msg = `<b>📊 Status</b>\n` +
-      `Model: <code>${config.model}</code>\n` +
-      `Workspace: <code>${userCwd}</code>\n` +
-      `History: ${info.messages} msgs\n` +
-      `Tools: ${info.tools}\n` +
-      `🛡️ Pending commands: ${pending.length}`;
+    const msg = `<b>📊 Статус</b>\n` +
+      `Модель: <code>${config.model}</code>\n` +
+      `Рабочая директория: <code>${userCwd}</code>\n` +
+      `История: ${info.messages} сообщений\n` +
+      `Инструменты: ${info.tools}\n` +
+      `🛡️ Ожидают подтверждения: ${pending.length}`;
     await ctx.reply(msg, { parse_mode: 'HTML' });
   });
 }
@@ -93,21 +107,21 @@ export function setupPendingCommand(bot: Telegraf) {
     
     const pending = getSessionPendingCommands(id);
     if (pending.length === 0) {
-      await ctx.reply('✅ No pending commands');
+      await ctx.reply('✅ Нет ожидающих подтверждений');
       return;
     }
     
     for (const cmd of pending) {
-      const message = `⏳ <b>Pending Command</b>\n\n` +
-        `<b>Reason:</b> ${escapeHtml(cmd.reason)}\n\n` +
+      const message = `⏳ <b>Ожидает подтверждения</b>\n\n` +
+        `<b>Причина:</b> ${escapeHtml(cmd.reason)}\n\n` +
         `<pre>${escapeHtml(cmd.command)}</pre>`;
       
       await ctx.reply(message, {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[
-            { text: '✅ Execute', callback_data: `exec:${cmd.id}` },
-            { text: '❌ Deny', callback_data: `deny:${cmd.id}` },
+            { text: '✅ Выполнить', callback_data: `exec:${cmd.id}` },
+            { text: '❌ Отклонить', callback_data: `deny:${cmd.id}` },
           ]],
         },
       });

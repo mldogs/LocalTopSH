@@ -17,30 +17,30 @@ export const manageTasksDefinition = {
   type: "function" as const,
   function: {
     name: "manage_tasks",
-    description: "Manage task list: create, update status, or list all tasks. Use for planning complex multi-step work.",
+    description: "Управление списком задач: создать, обновить статус, показать список или очистить выполненные. Удобно для планирования многошаговой работы.",
     parameters: {
       type: "object",
       properties: {
         action: { 
           type: "string", 
           enum: ["add", "update", "list", "clear"],
-          description: "Action: add new task, update status, list all, clear completed" 
+          description: "Действие: add (добавить), update (обновить), list (показать), clear (очистить выполненные/отмененные)" 
         },
         tasks: {
           type: "array",
           items: {
             type: "object",
             properties: {
-              id: { type: "string", description: "Unique task ID" },
-              content: { type: "string", description: "Task description" },
+              id: { type: "string", description: "Уникальный ID задачи" },
+              content: { type: "string", description: "Описание задачи" },
               status: { 
                 type: "string", 
                 enum: ["pending", "in_progress", "completed", "cancelled"],
-                description: "Task status"
+                description: "Статус задачи"
               },
             },
           },
-          description: "Array of tasks (for add/update actions)"
+          description: "Список задач (для add/update)"
         },
       },
       required: ["action"],
@@ -65,12 +65,12 @@ export async function executeManageTasks(
   switch (args.action) {
     case 'add': {
       if (!args.tasks?.length) {
-        return { success: false, error: 'No tasks provided' };
+        return { success: false, error: 'Не переданы задачи' };
       }
       
       for (const t of args.tasks) {
         if (!t.id || !t.content) {
-          return { success: false, error: 'Task requires id and content' };
+          return { success: false, error: 'Для задачи нужны поля: id и content' };
         }
         
         const existing = tasks.find(x => x.id === t.id);
@@ -94,7 +94,7 @@ export async function executeManageTasks(
     
     case 'update': {
       if (!args.tasks?.length) {
-        return { success: false, error: 'No tasks provided' };
+        return { success: false, error: 'Не переданы задачи' };
       }
       
       for (const t of args.tasks) {
@@ -115,16 +115,16 @@ export async function executeManageTasks(
     case 'clear': {
       const active = tasks.filter(t => t.status !== 'completed' && t.status !== 'cancelled');
       taskStore.set(sessionId, active);
-      return { success: true, output: `Cleared completed tasks. ${active.length} remaining.` };
+      return { success: true, output: `Очищено: выполненные/отмененные. Осталось: ${active.length}.` };
     }
     
     default:
-      return { success: false, error: `Unknown action: ${args.action}` };
+      return { success: false, error: `Неизвестное действие: ${args.action}` };
   }
 }
 
 function formatTasks(tasks: Task[]): string {
-  if (!tasks.length) return '(no tasks)';
+  if (!tasks.length) return '(задач нет)';
   
   const statusEmoji: Record<string, string> = {
     pending: '⬜',

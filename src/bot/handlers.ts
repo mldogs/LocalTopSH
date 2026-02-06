@@ -25,9 +25,9 @@ export function setupExecuteHandler(bot: Telegraf) {
       const pending = consumePendingCommand(commandId);
       
       if (!pending) {
-        await ctx.answerCbQuery('Command expired or already handled').catch(() => {});
+        await ctx.answerCbQuery('Команда устарела или уже обработана').catch(() => {});
         try {
-          await ctx.editMessageText('⏳ <i>Command expired</i>', { parse_mode: 'HTML' });
+          await ctx.editMessageText('⏳ <i>Команда устарела</i>', { parse_mode: 'HTML' });
         } catch {}
         return;
       }
@@ -35,12 +35,12 @@ export function setupExecuteHandler(bot: Telegraf) {
       // Update message to show executing
       try {
         await ctx.editMessageText(
-          `⏳ <b>Executing...</b>\n\n<pre>${escapeHtml(pending.command)}</pre>`,
+          `⏳ <b>Выполняю...</b>\n\n<pre>${escapeHtml(pending.command)}</pre>`,
           { parse_mode: 'HTML' }
         );
       } catch {}
       
-      await ctx.answerCbQuery('Executing...').catch(() => {});
+      await ctx.answerCbQuery('Выполняю...').catch(() => {});
       
       // Actually execute the command
       console.log(`[callback] Running: ${pending.command} in ${pending.cwd}`);
@@ -48,17 +48,17 @@ export function setupExecuteHandler(bot: Telegraf) {
       
       // Show result
       const output = result.success 
-        ? (result.output || '(empty output)')
-        : `Error: ${result.error}`;
+        ? (result.output || '(пустой вывод)')
+        : `Ошибка: ${result.error}`;
       
       const trimmedOutput = output.length > CONFIG.messages.outputTrimLength 
         ? output.slice(0, CONFIG.messages.outputHeadLength) + '\n...\n' + output.slice(-CONFIG.messages.outputTailLength)
         : output;
       
       const statusEmoji = result.success ? '✅' : '❌';
-      const finalMessage = `${statusEmoji} <b>Command ${result.success ? 'Executed' : 'Failed'}</b>\n\n` +
+      const finalMessage = `${statusEmoji} <b>${result.success ? 'Команда выполнена' : 'Ошибка выполнения'}</b>\n\n` +
         `<pre>${escapeHtml(pending.command)}</pre>\n\n` +
-        `<b>Output:</b>\n<pre>${escapeHtml(trimmedOutput)}</pre>`;
+        `<b>Вывод:</b>\n<pre>${escapeHtml(trimmedOutput)}</pre>`;
       
       try {
         await ctx.editMessageText(finalMessage, { parse_mode: 'HTML' });
@@ -71,7 +71,7 @@ export function setupExecuteHandler(bot: Telegraf) {
       
     } catch (e: any) {
       console.error('[callback] Error executing:', e);
-      await ctx.answerCbQuery('Error executing command').catch(() => {});
+      await ctx.answerCbQuery('Ошибка при выполнении команды').catch(() => {});
     }
   });
 }
@@ -86,14 +86,14 @@ export function setupDenyHandler(bot: Telegraf) {
       const cancelled = cancelPendingCommand(commandId);
       
       try {
-        await ctx.editMessageText('❌ <b>Command Denied</b>', { parse_mode: 'HTML' });
+        await ctx.editMessageText('❌ <b>Отклонено</b>', { parse_mode: 'HTML' });
       } catch {}
       
-      await ctx.answerCbQuery(cancelled ? 'Command denied' : 'Already handled').catch(() => {});
+      await ctx.answerCbQuery(cancelled ? 'Отклонено' : 'Уже обработано').catch(() => {});
       
     } catch (e: any) {
       console.error('[callback] Error:', e);
-      await ctx.answerCbQuery('Error').catch(() => {});
+      await ctx.answerCbQuery('Ошибка').catch(() => {});
     }
   });
 }
@@ -107,25 +107,25 @@ export function setupAskHandler(bot: Telegraf) {
     console.log(`[callback] Ask response for ${id}, option ${optionIndex}`);
     
     try {
-      const pending = pendingQuestions.get(id);
+        const pending = pendingQuestions.get(id);
       
       if (pending) {
         const keyboard = (ctx.callbackQuery.message as any)?.reply_markup?.inline_keyboard;
-        const selectedText = keyboard?.[optionIndex]?.[0]?.text || `Option ${optionIndex + 1}`;
+        const selectedText = keyboard?.[optionIndex]?.[0]?.text || `Вариант ${optionIndex + 1}`;
         
         pending.resolve(selectedText);
         
         try {
-          await ctx.editMessageText(`✅ Selected: <b>${escapeHtml(selectedText)}</b>`, { parse_mode: 'HTML' });
+          await ctx.editMessageText(`✅ Выбрано: <b>${escapeHtml(selectedText)}</b>`, { parse_mode: 'HTML' });
         } catch {}
         
-        await ctx.answerCbQuery(`Selected: ${selectedText}`).catch(() => {});
+        await ctx.answerCbQuery(`Выбрано: ${selectedText}`).catch(() => {});
       } else {
-        await ctx.answerCbQuery('Question expired').catch(() => {});
+        await ctx.answerCbQuery('Вопрос устарел').catch(() => {});
       }
     } catch (e) {
       console.error('[callback] Error:', e);
-      await ctx.answerCbQuery('Error').catch(() => {});
+      await ctx.answerCbQuery('Ошибка').catch(() => {});
     }
   });
 }

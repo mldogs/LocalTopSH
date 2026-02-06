@@ -23,18 +23,18 @@ export const definition = {
   type: "function" as const,
   function: {
     name: "ask_user",
-    description: "Ask user a question with button options. Use when you need confirmation or choice from user. Returns the selected option.",
+    description: "Задать пользователю вопрос с кнопками. Используй, когда нужен выбор или подтверждение. Возвращает выбранный вариант.",
     parameters: {
       type: "object",
       properties: {
         question: {
           type: "string",
-          description: "The question to ask the user"
+          description: "Вопрос пользователю"
         },
         options: {
           type: "array",
           items: { type: "string" },
-          description: "Button options for user to choose from (2-4 options)"
+          description: "Варианты ответов на кнопках (2-4 варианта)"
         },
       },
       required: ["question", "options"],
@@ -49,7 +49,7 @@ export async function execute(
   if (!askCallback) {
     return {
       success: false,
-      error: 'Ask callback not configured',
+      error: 'Не настроен ask callback',
     };
   }
   
@@ -57,7 +57,7 @@ export async function execute(
   if (!args.options || args.options.length < 2) {
     return {
       success: false,
-      error: 'Need at least 2 options',
+      error: 'Нужно минимум 2 варианта',
     };
   }
   
@@ -69,12 +69,12 @@ export async function execute(
     const answer = await askCallback(sessionId, args.question, args.options);
     return {
       success: true,
-      output: `User selected: ${answer}`,
+      output: `Пользователь выбрал: ${answer}`,
     };
   } catch (e: any) {
     return {
       success: false,
-      error: `Failed to get user response: ${e.message}`,
+      error: `Не удалось получить ответ пользователя: ${e.message}`,
     };
   }
 }

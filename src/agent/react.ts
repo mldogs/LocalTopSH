@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import * as tools from '../tools/index.js';
 import { getMemoryForPrompt, getChatHistory } from '../tools/memory.js';
 import { CONFIG } from '../config.js';
+import { getOctoberGroupContextForPrompt, getOctoberGroupInternalContextForPrompt } from '../company/octobergroup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT_FILE = join(__dirname, 'system.txt');
@@ -98,6 +99,15 @@ export class ReActAgent {
   
   private getSystemPrompt(): string {
     let prompt = readFileSync(SYSTEM_PROMPT_FILE, 'utf-8');
+
+    const workspaceRoot =
+      process.env.WORKSPACE && process.env.WORKSPACE.startsWith('/')
+        ? process.env.WORKSPACE
+        : this.config.cwd.startsWith('/workspace/')
+          ? '/workspace'
+          : this.config.cwd;
+    const companyContext = getOctoberGroupContextForPrompt(workspaceRoot);
+    const companyInternalContext = getOctoberGroupInternalContextForPrompt(workspaceRoot);
     
     // Extract userId from cwd path (e.g., /workspace/123456789 -> 123456789)
     const cwdParts = this.config.cwd.split('/');
@@ -112,17 +122,20 @@ export class ReActAgent {
     
     // Replace placeholders
     prompt = prompt
-      .replace('{{cwd}}', this.config.cwd)
-      .replace('{{date}}', new Date().toISOString().slice(0, 10))
-      .replace('{{tools}}', tools.toolNames.join(', '))
-      .replace('{{userPorts}}', userPorts);
+      .replaceAll('{{cwd}}', this.config.cwd)
+      .replaceAll('{{date}}', new Date().toISOString().slice(0, 10))
+      .replaceAll('{{model}}', this.config.model)
+      .replaceAll('{{tools}}', tools.toolNames.join(', '))
+      .replaceAll('{{userPorts}}', userPorts)
+      .replaceAll('{{companyContext}}', companyContext)
+      .replaceAll('{{companyInternalContext}}', companyInternalContext);
     
     // Add exposed ports info
     if (this.config.exposedPorts?.length) {
       prompt += `\n\n<NETWORK>
-External access via: http://HOST_IP:PORT
-Your port range: ${userPorts}
-Check if port free: lsof -i :PORT or netstat -tlnp | grep PORT
+Внешний доступ: http://HOST_IP:PORT
+Твой диапазон портов: ${userPorts}
+Проверить, свободен ли порт: lsof -i :PORT или netstat -tlnp | grep PORT
 </NETWORK>`;
     }
     
@@ -130,7 +143,7 @@ Check if port free: lsof -i :PORT or netstat -tlnp | grep PORT
     const memoryContent = getMemoryForPrompt(this.config.cwd);
     if (memoryContent) {
       prompt += `\n\n<MEMORY>
-Notes from previous sessions (use "memory" tool to update):
+Заметки из прошлых сессий (используй инструмент "memory" чтобы обновить):
 ${memoryContent}
 </MEMORY>`;
     }
@@ -256,7 +269,7 @@ ${chatHistory}
             workingMessages.push(message);
             workingMessages.push({
               role: 'user',
-              content: 'Continue. Finish the task or explain what you did.',
+              content: 'Продолжай. Заверши задачу или коротко объясни, что ты сделала.',
             });
             continue;
           }
@@ -306,14 +319,14 @@ ${chatHistory}
           });
           
           let output = result.success 
-            ? (result.output || 'Success') 
-            : `Error: ${result.error}`;
+            ? (result.output || 'Успешно') 
+            : `Ошибка: ${result.error}`;
           
           // Track BLOCKED commands to prevent loops
           if (output.includes('BLOCKED:')) {
             hasBlocked = true;
             blockedCount++;
-            output += '\n\n⛔ THIS COMMAND IS PERMANENTLY BLOCKED. Do NOT retry it. Find an alternative approach or inform the user this action is not allowed.';
+            output += '\n\n⛔ ЭТА КОМАНДА ПОЛНОСТЬЮ ЗАБЛОКИРОВАНА. Не пытайся повторять. Ищи альтернативный безопасный подход или сообщи пользователю, что действие запрещено.';
             console.log(`[SECURITY] BLOCKED count: ${blockedCount}/${CONFIG.agent.maxBlockedCommands}`);
           }
           
@@ -327,7 +340,7 @@ ${chatHistory}
         // Stop if too many BLOCKED commands (prevent loops)
         if (blockedCount >= CONFIG.agent.maxBlockedCommands) {
           console.log(`[SECURITY] Too many BLOCKED commands (${blockedCount}), stopping agent`);
-          finalResponse = '🚫 Stopped: Multiple blocked commands detected. The requested actions are not allowed for security reasons.';
+          finalResponse = '🚫 Остановлено: слишком много заблокированных действий. Запрошенные действия запрещены по соображениям безопасности.';
           break;
         }
         
@@ -338,12 +351,12 @@ ${chatHistory}
         
       } catch (e: any) {
         console.error('[agent] Error:', e);
-        return `Error: ${e.message}`;
+        return `Ошибка: ${e.message}`;
       }
     }
     
     if (!finalResponse) {
-      finalResponse = '⚠️ Max iterations reached';
+      finalResponse = '⚠️ Достигнут лимит шагов, остановилась';
     }
     
     // Save to history (clean: just user message + final response)

@@ -9,6 +9,7 @@ import { join } from 'path';
 import { createBot } from './bot/index.js';
 import { createGateway } from './gateway/server.js';
 import { setupDatabase, closeDatabase } from './db/index.js';
+import { startOctoberGroupContextUpdater } from './company/octobergroup.js';
 
 // Load .env (fallback for local dev)
 loadEnv();
@@ -114,6 +115,9 @@ const mode = process.argv[2] || 'bot';
 
 // Drop root privileges before any tool execution / file access in runtime.
 dropPrivileges();
+
+// Refresh public company context weekly (best-effort, non-blocking).
+startOctoberGroupContextUpdater(config.cwd);
 
 // Initialize database
 const dbPath = join(config.cwd, 'october.db');

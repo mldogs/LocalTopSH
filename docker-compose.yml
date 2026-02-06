@@ -36,7 +36,8 @@ services:
     environment:
       # NO API KEYS HERE! Only proxy URL
       - PROXY_URL=http://proxy:3200
-      - MODEL_NAME=openai/gpt-oss-120b
+      - MODEL_NAME=google/gemini-3-flash-preview
+      - BOT_PROFILE=october
       - MCP_PORT=3100
       - MCP_URL=http://localhost:3100
       - WORKSPACE=/workspace
