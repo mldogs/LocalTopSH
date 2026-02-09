@@ -98,6 +98,12 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+Optional hardening (may not work on some restricted Docker setups):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d --build
+```
+
 ## Security
 
 **241 regex patterns** protecting against attacks:

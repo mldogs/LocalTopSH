@@ -49,28 +49,6 @@ services:
       - ./workspace:/workspace
     networks:
       - agent-net
-    
-    # ============ SECURITY HARDENING ============
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETUID
-      - SETGID
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-          pids: 100
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    tmpfs:
-      - /tmp:size=100M,mode=1777
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('ok')"]
       interval: 30s
