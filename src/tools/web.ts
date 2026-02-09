@@ -1,6 +1,6 @@
 /**
  * Web tools - Pattern: Action + Object
- * search_web (via Proxy or direct Z.AI), fetch_page
+ * search_web (via Proxy or direct provider), fetch_page
  */
 
 import { CONFIG } from '../config.js';
@@ -26,13 +26,25 @@ export function setProxyUrl(url: string | undefined) {
 async function searchViaProxy(query: string): Promise<SearchResult[]> {
   if (!proxyUrl) throw new Error('Proxy URL not configured');
   
-  const response = await fetch(`${proxyUrl}/zai/search?q=${encodeURIComponent(query)}`);
+  const response = await fetch(`${proxyUrl}/search?q=${encodeURIComponent(query)}`);
   
   if (!response.ok) {
     throw new Error(`Proxy error: ${response.status}`);
   }
   
-  const data = await response.json() as { search_result?: any[] };
+  const data = await response.json() as { results?: any[]; search_result?: any[] };
+
+  // New proxy format: { results: [...] }
+  if (Array.isArray(data.results)) {
+    return data.results.map((r: any) => ({
+      title: r.title,
+      url: r.url,
+      content: r.content,
+      date: r.date,
+    }));
+  }
+
+  // Back-compat: old proxy passthrough from Z.AI: { search_result: [...] }
   return (data.search_result || []).map((r: any) => ({
     title: r.title,
     url: r.link,
@@ -161,23 +173,23 @@ export async function executeSearchWeb(
 async function readPageViaProxy(url: string): Promise<string> {
   if (!proxyUrl) throw new Error('Proxy URL not configured');
   
-  const response = await fetch(`${proxyUrl}/zai/read?url=${encodeURIComponent(url)}`);
+  const response = await fetch(`${proxyUrl}/read?url=${encodeURIComponent(url)}`);
   
   if (!response.ok) {
     throw new Error(`Proxy error: ${response.status}`);
   }
   
-  const data = await response.json() as { reader_result?: { content?: string; title?: string; description?: string } };
-  const result = data.reader_result;
-  
-  if (!result?.content) {
-    throw new Error('Не удалось получить контент');
-  }
+  const data = await response.json() as any;
+
+  // New proxy format: { title?, description?, content }
+  const result = data?.reader_result || data;
+  const content = result?.content;
+  if (!content) throw new Error('Не удалось получить контент');
   
   let output = '';
   if (result.title) output += `# ${result.title}\n\n`;
   if (result.description) output += `> ${result.description}\n\n`;
-  output += result.content;
+  output += content;
   
   return output;
 }

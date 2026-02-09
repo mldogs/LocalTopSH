@@ -6,13 +6,14 @@ services:
     restart: unless-stopped
     networks:
       - agent-net
-    secrets:
-      - source: base_url
-        mode: 0444
-      - source: api_key
-        mode: 0444
-      - source: zai_api_key
-        mode: 0444
+    environment:
+      # Secrets are injected via .env (host), but only into this proxy container.
+      # The agent container never receives API keys.
+      - PROXY_PORT=3200
+      - BASE_URL=${BASE_URL}
+      - API_KEY=${API_KEY}
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3200/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -35,17 +36,15 @@ services:
         condition: service_healthy
     environment:
       # NO API KEYS HERE! Only proxy URL
-      - PROXY_URL=http://proxy:3200
-      - MODEL_NAME=google/gemini-3-flash-preview
-      - BOT_PROFILE=october
-      - MCP_PORT=3100
-      - MCP_URL=http://localhost:3100
+      - PROXY_URL=${PROXY_URL:-http://proxy:3200}
+      - MODEL_NAME=${MODEL_NAME:-google/gemini-3-flash-preview}
+      - BOT_PROFILE=${BOT_PROFILE:-october}
+      - MCP_PORT=${MCP_PORT:-3100}
+      - MCP_URL=${MCP_URL:-http://localhost:3100}
       - WORKSPACE=/workspace
-      - MAX_CONCURRENT_USERS=10
+      - MAX_CONCURRENT_USERS=${MAX_CONCURRENT_USERS:-10}
       - AGENT_CWD=/workspace
-    secrets:
-      - source: telegram_token
-        mode: 0400
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
     volumes:
       - ./workspace:/workspace
     networks:
@@ -78,17 +77,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-# ============ SECRETS ============
-secrets:
-  telegram_token:
-    file: ./secrets/telegram_token.txt
-  base_url:
-    file: ./secrets/base_url.txt
-  api_key:
-    file: ./secrets/api_key.txt
-  zai_api_key:
-    file: ./secrets/zai_api_key.txt
 
 networks:
   agent-net:

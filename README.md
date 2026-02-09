@@ -87,16 +87,15 @@ CONFIG.timeouts.toolExecution = 180_000;
 ## Quick Start
 
 ```bash
-# 1. Create secrets
-mkdir secrets
-echo "your-telegram-token" > secrets/telegram_token.txt
-echo "http://your-llm:8000/v1" > secrets/base_url.txt
-echo "your-llm-key" > secrets/api_key.txt
-echo "your-zai-key" > secrets/zai_api_key.txt
-chmod 644 secrets/*.txt
+# 1. Configure env
+cp .env.example .env
+# Edit .env:
+# - TELEGRAM_TOKEN
+# - BASE_URL + API_KEY (example: OpenRouter)
+# - TAVILY_API_KEY (preferred) or ZAI_API_KEY
 
 # 2. Start
-docker compose up -d
+docker compose up -d --build
 ```
 
 ## Security
@@ -114,7 +113,7 @@ Categories:
 - Files: .env, credentials, SSH keys, symlink attacks
 
 Architecture:
-- Docker Secrets for all API keys
+- API keys live only in the proxy container (.env -> proxy env)
 - Internal proxy isolates secrets from agent
 - Per-user workspace isolation
 - Rate limiting (Telegram API)
@@ -123,7 +122,7 @@ Architecture:
 
 ```
 ├── docker-compose.yml    # Gateway + Proxy containers
-├── secrets/              # API keys (gitignored)
+├── .env.example          # copy to .env (gitignored)
 ├── proxy/                # Internal API proxy
 │   └── index.js
 └── src/

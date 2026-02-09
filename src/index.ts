@@ -136,7 +136,14 @@ if (mode === 'gateway') {
   console.log(`Base workspace: ${config.cwd}`);
   console.log(`Model: ${config.model}`);
   console.log(`API: ${proxyUrl ? 'via Proxy' : 'direct'}`);
-  console.log(`Search: ${proxyUrl ? 'via Proxy' : config.zaiApiKey ? 'Z.AI' : 'none'}`);
+  const searchMode = proxyUrl
+    ? 'via Proxy'
+    : config.tavilyApiKey
+      ? 'Tavily'
+      : config.zaiApiKey
+        ? 'Z.AI'
+        : 'none';
+  console.log(`Search: ${searchMode}`);
   console.log(`Ports: ${exposedPorts.length ? exposedPorts.join(', ') : 'none'}`);
   console.log(`Max concurrent users: ${config.maxConcurrentUsers}`);
   console.log('Access: Open to all users (per-user workspaces)');
